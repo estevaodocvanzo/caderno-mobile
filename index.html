@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Caderno de Erros — Residência Médica</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #0f1117; }
+  body { font-family: system-ui, -apple-system, sans-serif; }
+  * { box-sizing: border-box; }
+  [contenteditable]:empty:before { content: attr(data-placeholder); color: #4a5568; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo } = React;
+
+const AREAS = ["Clínica Médica","Cirurgia","GO","Pediatria","Preventiva","Psiquiatria","Neurologia","Ortopedia","Outro"];
+
+function calcNextReview(card, grade) {
+  let { interval=1, repetitions=0, easeFactor=2.5 } = card;
+  if (grade < 2) { interval=1; repetitions=0; }
+  else {
+    if (repetitions===0) interval=1;
+    else if (repetitions===1) interval=6;
+    else interval=Math.round(interval*easeFactor);
+    repetitions+=1;
+    easeFactor=Math.max(1.3, easeFactor+0.1-(3-grade)*(0.08+(3-grade)*0.02));
+  }
+  const d=new Date(); d.setDate(d.getDate()+interval);
+  return { interval, repetitions, easeFactor, nextReview:d.toISOString().split("T")[0] };
+}
+
+const today = () => new Date().toISOString().split("T")[0];
+const nowIso = () => new Date().toISOString();
+const STORAGE_KEY = "residencia_v2";
+
+// ============================================================
+// Matching fuzzy para import de CofCards do MedCof
+// ============================================================
+// Normaliza texto: minúsculas, remove acentos, strip HTML/markdown,
+// colapsa whitespace, remove pontuação. Estável para matching exato.
+function normalizeText(s) {
+  if (typeof s !== "string") return "";
+  return s
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // remove acentos
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ")                          // strip HTML
+    .replace(/\*\*|__|\*|_|`/g, "")                    // strip markdown
+    .replace(/[^\w\s]/g, " ")                          // remove pontuacao
+    .replace(/\s+/g, " ")                              // colapsa whitespace
+    .trim();
+}
+// Tokeniza em palavras com ≥ 3 caracteres (filtra stopwords curtas)
+function tokenize(s) {
+  return new Set(normalizeText(s).split(" ").filter(t => t.length >= 3));
+}
+// Jaccard similarity (0..1) — robusta a edição parcial de vinheta clínica
+function jaccardSimilarity(a, b) {
+  const ta = tokenize(a);
+  const tb = tokenize(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  const union = ta.size + tb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+const COFCARDS_FUZZY_THRESHOLD = 0.80;
+const API_KEY_STORAGE = "anthropic_api_key";
+const GH_TOKEN_KEY = "github_gist_token";
+const GIST_ID_KEY = "github_gist_id";
+const LAST_SYNC_KEY = "last_gist_sync_at";
+
+const loadData = async () => {
+  try {
+    const keys = ["residencia_v2","residencia_v1","residencia","acertamed_v1"];
+    for (const k of keys) {
+      try {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p.cards && p.cards.length > 0) {
+            if (k !== STORAGE_KEY) localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+            return { cards: p.cards || [], deletedIds: p.deletedIds || {} };
+          }
+        }
+      } catch {}
+    }
+    return { cards: [], deletedIds: {} };
+  } catch { return { cards: [], deletedIds: {} }; }
+};
+
+const saveData = async (d) => {
+  // Deferred to avoid blocking mouse events — JSON.stringify de cards grandes (com base64) trava o thread
+  setTimeout(() => {
+    try {
+      const payload = { cards: d.cards || [], deletedIds: d.deletedIds || {} };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+  }, 0);
+};
+
+const getApiKey = () => localStorage.getItem(API_KEY_STORAGE) || "";
+const saveApiKey = (k) => localStorage.setItem(API_KEY_STORAGE, k);
+
+// ============================================================
+// Sync via GitHub Gist privado (uma verdade única na nuvem)
+// ============================================================
+const getGhToken = () => localStorage.getItem(GH_TOKEN_KEY) || "";
+const saveGhToken = (t) => { if (t) localStorage.setItem(GH_TOKEN_KEY, t.trim()); else localStorage.removeItem(GH_TOKEN_KEY); };
+const getGistId = () => localStorage.getItem(GIST_ID_KEY) || "";
+const saveGistId = (id) => { if (id) localStorage.setItem(GIST_ID_KEY, id.trim()); else localStorage.removeItem(GIST_ID_KEY); };
+const getLastSync = () => localStorage.getItem(LAST_SYNC_KEY) || "";
+const saveLastSync = (iso) => localStorage.setItem(LAST_SYNC_KEY, iso);
+
+const GIST_FILENAME = "caderno-de-erros.json";
+const GIST_DESCRIPTION = "Caderno de Erros — sync (não apague)";
+
+// Bridge pro background (content-app.js faz o fetch pra api.github.com)
+let _ghReqCounter = 0;
+const _ghPending = new Map();
+window.addEventListener("message", (ev) => {
+  if (ev.source !== window) return;
+  const msg = ev.data;
+  if (msg?.type === "CAD_GIST_API_RESULT" && _ghPending.has(msg.reqId)) {
+    const {resolve} = _ghPending.get(msg.reqId);
+    _ghPending.delete(msg.reqId);
+    resolve(msg);
+  }
+});
+function callGithub(method, path, body) {
+  const token = getGhToken();
+  if (!token) return Promise.resolve({ ok: false, error: "Token GitHub não configurado" });
+  return new Promise((resolve) => {
+    const reqId = ++_ghReqCounter;
+    _ghPending.set(reqId, { resolve });
+    window.postMessage({ type: "CAD_GIST_API", reqId, method, path, token, body }, "*");
+    setTimeout(() => {
+      if (_ghPending.has(reqId)) {
+        _ghPending.delete(reqId);
+        resolve({ ok: false, error: "Timeout — a extensão respondeu? (recarregue a aba)" });
+      }
+    }, 20000);
+  });
+}
+
+// Cria novo gist com os dados atuais
+async function gistCreate(cards, deletedIds) {
+  const content = JSON.stringify({ cards, deletedIds, version: 2, savedAt: nowIso() }, null, 2);
+  const body = {
+    description: GIST_DESCRIPTION,
+    public: false,
+    files: { [GIST_FILENAME]: { content } }
+  };
+  const resp = await callGithub("POST", "/gists", body);
+  if (!resp.ok) throw new Error(resp.error || "Falha ao criar gist");
+  return resp.data.id;
+}
+
+// Busca o gist existente
+async function gistFetch(id) {
+  const resp = await callGithub("GET", "/gists/" + encodeURIComponent(id));
+  if (!resp.ok) {
+    if (resp.status === 404) throw new Error("Gist não encontrado — verifique o ID");
+    if (resp.status === 401) throw new Error("Token inválido ou sem permissão 'gist'");
+    throw new Error(resp.error || "Falha ao buscar gist");
+  }
+  const file = resp.data?.files?.[GIST_FILENAME] || Object.values(resp.data?.files || {})[0];
+  if (!file) return { cards: [], deletedIds: {}, updatedAt: resp.data?.updated_at };
+  // GitHub trunca o campo content quando o arquivo > 1MB — busca pelo raw_url nesse caso
+  let rawContent = file.content || "";
+  if (file.truncated && file.raw_url) {
+    const rawResp = await callGithub("GET_RAW", file.raw_url);
+    if (rawResp.ok) rawContent = rawResp.data;
+    else throw new Error("Arquivo muito grande e não foi possível buscar conteúdo raw: " + rawResp.error);
+  }
+  let parsed;
+  try { parsed = JSON.parse(rawContent || "{}"); }
+  catch { throw new Error("Gist tem conteúdo corrompido (JSON inválido)"); }
+  return {
+    cards: Array.isArray(parsed.cards) ? parsed.cards : [],
+    deletedIds: parsed.deletedIds && typeof parsed.deletedIds === "object" ? parsed.deletedIds : {},
+    updatedAt: resp.data?.updated_at
+  };
+}
+
+// Atualiza o gist com novos dados
+async function gistUpdate(id, cards, deletedIds) {
+  const content = JSON.stringify({ cards, deletedIds, version: 2, savedAt: nowIso() }, null, 2);
+  const body = { files: { [GIST_FILENAME]: { content } } };
+  const resp = await callGithub("PATCH", "/gists/" + encodeURIComponent(id), body);
+  if (!resp.ok) throw new Error(resp.error || "Falha ao atualizar gist");
+  return true;
+}
+
+// Mescla dois conjuntos (local + remoto) respeitando updatedAt e deletedIds
+function mergeData(local, remote) {
+  const map = new Map(); // id → card
+  for (const c of local.cards || []) map.set(c.id, c);
+  for (const c of remote.cards || []) {
+    const cur = map.get(c.id);
+    if (!cur) { map.set(c.id, c); continue; }
+    const a = cur.updatedAt || cur.createdAt || "";
+    const b = c.updatedAt || c.createdAt || "";
+    if (b > a) map.set(c.id, c);
+  }
+  const deletedIds = { ...(local.deletedIds || {}), ...(remote.deletedIds || {}) };
+  // Pra cada id, mantém timestamp mais recente
+  for (const k of Object.keys(deletedIds)) {
+    const l = local.deletedIds?.[k] || "";
+    const r = remote.deletedIds?.[k] || "";
+    deletedIds[k] = l > r ? l : r;
+  }
+  // Remove cards que foram deletados depois do seu próprio updatedAt
+  const merged = [];
+  for (const c of map.values()) {
+    const delTs = deletedIds[c.id];
+    const cardTs = c.updatedAt || c.createdAt || "";
+    if (delTs && delTs >= cardTs) continue; // deleção venceu
+    merged.push(c);
+  }
+  return { cards: merged, deletedIds };
+}
+
+async function callAnthropic(body) {
+  const key = getApiKey();
+  if (!key) throw new Error("API KEY não configurada. Clique em Configurações.");
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const errText = await resp.text();
+    throw new Error(`API erro ${resp.status}: ${errText.slice(0,200)}`);
+  }
+  return resp.json();
+}
+
+function exportBackup(cards) {
+  const data = { cards, exportedAt: new Date().toISOString(), version: 2 };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `caderno-erros-backup-${today()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+const stripHtml = s => (s||"").replace(/<[^>]+>/g,"");
+
+function syncBadge(state, configured) {
+  if (!configured) return { icon: "○", label: "sem sync", title: "Configure a sync nas Configurações" };
+  if (state.status === "syncing") return { icon: "⟳", label: "sincronizando…", title: "Sincronizando com GitHub Gist" };
+  if (state.status === "error") return { icon: "⚠", label: "erro", title: "Erro: " + (state.error || "desconhecido") };
+  if (state.status === "ok" || state.lastSync) {
+    const d = new Date(state.lastSync);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return { icon: "☁", label: `${hh}:${mm}`, title: `Sincronizado às ${hh}:${mm}` };
+  }
+  return { icon: "○", label: "aguardando", title: "Aguardando primeira sync" };
+}
+
+const S = {
+  app:  {minHeight:"100vh",background:"#0f1117",color:"#e2e8f0",fontFamily:"system-ui,sans-serif",paddingBottom:80},
+  nav:  {display:"flex",gap:2,padding:"12px 12px 0",borderBottom:"1px solid #1e2535",overflowX:"auto"},
+  navB: a => ({background:a?"#1a1f2e":"transparent",border:"none",borderBottom:a?"2px solid #63b3ed":"2px solid transparent",color:a?"#63b3ed":"#4a5568",padding:"8px 12px",cursor:"pointer",fontSize:13,fontWeight:500,borderRadius:"4px 4px 0 0",whiteSpace:"nowrap"}),
+  card: {background:"#1a1f2e",border:"1px solid #1e2535",borderRadius:12,padding:"16px 18px",marginBottom:12},
+  btn:  v => ({background:v==="primary"?"#2b6cb0":v==="success"?"#276749":v==="danger"?"#9b2c2c":v==="warn"?"#744210":"#2d3748",color:"#e2e8f0",border:"none",borderRadius:8,padding:"9px 18px",cursor:"pointer",fontSize:13,fontWeight:500}),
+  inp:  {background:"#131720",border:"1px solid #2d3748",borderRadius:8,padding:"9px 12px",color:"#e2e8f0",fontSize:14,width:"100%",boxSizing:"border-box"},
+  lbl:  {fontSize:12,color:"#718096",marginBottom:4,display:"block"},
+  bdg:  c => ({background:c==="blue"?"#1e3a5f":c==="green"?"#1c4532":c==="purple"?"#322659":"#2d3748",color:c==="blue"?"#90cdf4":c==="green"?"#9ae6b4":c==="purple"?"#d6bcfa":"#a0aec0",fontSize:11,padding:"2px 8px",borderRadius:999,fontWeight:500}),
+};
+
+function ExamHeader({src, onRemove, onZoom}) {
+  if (!src) return null;
+  return (
+    <div style={{position:"relative",marginBottom:12,borderRadius:"10px 10px 0 0",overflow:"hidden",background:"#0a0e17",textAlign:"center"}}>
+      <img src={src} onClick={() => onZoom && onZoom(src)} style={{maxWidth:"100%",maxHeight:220,display:"block",margin:"0 auto",objectFit:"contain",cursor:"zoom-in"}} alt="exame"/>
+      {onRemove && <button onClick={e => {e.stopPropagation(); onRemove();}} style={{position:"absolute",top:6,right:6,background:"#9b2c2ccc",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
+    </div>
+  );
+}
+
+function RichEditor({value, onChange, placeholder, minHeight=80}) {
+  const editorRef = useRef();
+  const fileRef = useRef();
+  useEffect(() => {
+    const el = editorRef.current;
+    if (el && el.innerHTML !== (value?.html || "")) el.innerHTML = value?.html || "";
+  }, []);
+  const execCmd = (cmd, arg=null) => { editorRef.current?.focus(); document.execCommand(cmd, false, arg); sync(); };
+  const sync = () => { const h = editorRef.current?.innerHTML || ""; onChange({...(value||{}), html: h}); };
+  function handlePaste(e) {
+    const items = e.clipboardData?.items; if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const f = item.getAsFile();
+        const r = new FileReader();
+        r.onload = ev => onChange({...(value||{}), img: ev.target.result});
+        r.readAsDataURL(f);
+        return;
+      }
+    }
+    e.preventDefault();
+    document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
+    sync();
+  }
+  function handleFile(e) {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => onChange({...(value||{}), img: ev.target.result});
+    r.readAsDataURL(f);
+    e.target.value = "";
+  }
+  const bS = () => ({background:"#2d3748",border:"none",color:"#e2e8f0",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
+  return (
+    <div style={{border:"1px solid #2d3748",borderRadius:8,background:"#131720",overflow:"hidden"}}>
+      <div style={{display:"flex",gap:5,padding:"6px 8px",borderBottom:"1px solid #1e2535",flexWrap:"wrap",alignItems:"center"}}>
+        <button style={bS()} onMouseDown={e => {e.preventDefault(); execCmd("bold");}}><b>N</b></button>
+        <button style={{...bS(),background:"#7c6a00",color:"#ffe066"}} onMouseDown={e => {e.preventDefault(); execCmd("hiliteColor","#ffe066");}}>▐ mk</button>
+        <button style={{...bS(),fontSize:11,color:"#a0aec0"}} onMouseDown={e => {e.preventDefault(); execCmd("removeFormat");}}>✕ fmt</button>
+        <div style={{width:1,height:16,background:"#2d3748",margin:"0 2px"}}/>
+        <button style={{...bS(),fontSize:11}} onMouseDown={e => {e.preventDefault(); fileRef.current.click();}}>📎 img</button>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+      </div>
+      <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={sync} onPaste={handlePaste} data-placeholder={placeholder}
+        style={{minHeight, padding:"9px 12px", color:"#e2e8f0", fontSize:14, outline:"none", lineHeight:1.6, wordBreak:"break-word", fontFamily:"system-ui,sans-serif", fontWeight:400}}/>
+      {value?.img && (
+        <div style={{position:"relative",padding:"0 10px 10px"}}>
+          <img src={value.img} style={{maxWidth:"100%",borderRadius:6,display:"block"}} alt="anexo"/>
+          <button style={{position:"absolute",top:4,right:14,background:"#9b2c2c",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => onChange({...value, img: null})}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ComentarioSection({form, setForm}) {
+  const fileRef = useRef();
+  function addImg(f) {
+    const r = new FileReader();
+    r.onload = ev => setForm(fr => ({...fr, comentarioImgs: [...(fr.comentarioImgs||[]), ev.target.result]}));
+    r.readAsDataURL(f);
+  }
+  function handleFile(e) { Array.from(e.target.files).forEach(addImg); e.target.value = ""; }
+  function handlePaste(e) {
+    const items = e.clipboardData?.items; if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) { e.preventDefault(); addImg(item.getAsFile()); return; }
+    }
+  }
+  function removeImg(i) { setForm(f => ({...f, comentarioImgs: (f.comentarioImgs||[]).filter((_,idx) => idx !== i)})); }
+  const imgs = form.comentarioImgs || [];
+  return (
+    <div id="comentario-section" style={{marginBottom:14}}>
+      <label style={{...S.lbl, marginBottom:6}}>💬 Comentário do professor <span style={{color:"#4a5568",fontWeight:400}}>(opcional — melhora o flashcard)</span></label>
+      <textarea style={{...S.inp, minHeight:60, resize:"vertical", marginBottom:8}} placeholder="Cole ou digite o comentário…" value={form.comentario||""} onChange={e => setForm(f => ({...f, comentario: e.target.value}))} onPaste={handlePaste}/>
+      {imgs.length > 0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
+          {imgs.map((src, i) => (
+            <div key={i} style={{position:"relative",display:"inline-block"}}>
+              <img src={src} style={{height:72,borderRadius:6,border:"1px solid #2d3748",display:"block"}} alt={`c-${i}`}/>
+              <button onClick={() => removeImg(i)} style={{position:"absolute",top:-6,right:-6,background:"#9b2c2c",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={() => fileRef.current.click()} style={{...S.btn(), fontSize:12, padding:"5px 12px"}}>📎 {imgs.length > 0 ? "Adicionar mais" : "Print do comentário"}</button>
+      <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
+      <p style={{fontSize:11,color:"#4a5568",margin:"4px 0 0"}}>ou cole com Ctrl+V na área de texto</p>
+    </div>
+  );
+}
+
+function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDeletedIds, syncState, setSyncState}) {
+  const [key, setKey] = useState(getApiKey());
+  const [showKey, setShowKey] = useState(false);
+  const [ghToken, setGhTokenLocal] = useState(getGhToken());
+  const [showGh, setShowGh] = useState(false);
+  const [gistId, setGistIdLocal] = useState(getGistId());
+  const [syncBusy, setSyncBusy] = useState(false);
+  const importRef = useRef();
+
+  function handleSaveKey() {
+    saveApiKey(key.trim());
+    showToast("Chave salva!");
+  }
+
+  function handleSaveGh() {
+    saveGhToken(ghToken);
+    saveGistId(gistId);
+    showToast("Credenciais salvas!");
+  }
+
+  async function handleCreateGist() {
+    if (!ghToken.trim()) { alert("Cole o Personal Access Token primeiro."); return; }
+    saveGhToken(ghToken);
+    setSyncBusy(true);
+    setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+    try {
+      const id = await gistCreate(cards, deletedIds || {});
+      saveGistId(id);
+      setGistIdLocal(id);
+      const ts = nowIso();
+      saveLastSync(ts);
+      setSyncState({ status: "ok", error: "", lastSync: ts });
+      showToast("Gist criado! ID: " + id.slice(0, 8) + "…");
+    } catch (e) {
+      setSyncState({ status: "error", error: e.message, lastSync: getLastSync() });
+      alert("Falha ao criar gist: " + e.message);
+    }
+    setSyncBusy(false);
+  }
+
+  async function handleConnectGist() {
+    if (!ghToken.trim() || !gistId.trim()) { alert("Cole o token E o ID do gist."); return; }
+    saveGhToken(ghToken);
+    saveGistId(gistId);
+    setSyncBusy(true);
+    setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+    try {
+      const remote = await gistFetch(gistId.trim());
+      const local = { cards, deletedIds: deletedIds || {} };
+      const merged = mergeData(local, remote);
+      setCards(merged.cards);
+      setDeletedIds(merged.deletedIds);
+      // Push de volta a versão mesclada
+      await gistUpdate(gistId.trim(), merged.cards, merged.deletedIds);
+      const ts = nowIso();
+      saveLastSync(ts);
+      setSyncState({ status: "ok", error: "", lastSync: ts });
+      showToast(`Conectado! ${merged.cards.length} cards no total.`);
+    } catch (e) {
+      setSyncState({ status: "error", error: e.message, lastSync: getLastSync() });
+      alert("Falha ao conectar: " + e.message);
+    }
+    setSyncBusy(false);
+  }
+
+  async function handleSyncNow() {
+    if (!getGhToken() || !getGistId()) { alert("Configure token e gist ID primeiro."); return; }
+    setSyncBusy(true);
+    setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+    try {
+      const remote = await gistFetch(getGistId());
+      const local = { cards, deletedIds: deletedIds || {} };
+      const merged = mergeData(local, remote);
+      setCards(merged.cards);
+      setDeletedIds(merged.deletedIds);
+      await gistUpdate(getGistId(), merged.cards, merged.deletedIds);
+      const ts = nowIso();
+      saveLastSync(ts);
+      setSyncState({ status: "ok", error: "", lastSync: ts });
+      showToast("Sincronizado!");
+    } catch (e) {
+      setSyncState({ status: "error", error: e.message, lastSync: getLastSync() });
+      alert("Falha na sync: " + e.message);
+    }
+    setSyncBusy(false);
+  }
+
+  function handleDisconnect() {
+    if (!confirm("Desconectar esta máquina do gist?\n\nSeus dados locais continuam aqui, mas não vão mais sincronizar. O gist na nuvem permanece intacto.")) return;
+    saveGhToken("");
+    saveGistId("");
+    setGhTokenLocal("");
+    setGistIdLocal("");
+    setSyncState({ status: "idle", error: "", lastSync: "" });
+    showToast("Desconectado.");
+  }
+
+  function handleImport(e) {
+    const f = e.target.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data.cards || !Array.isArray(data.cards)) throw new Error("Arquivo inválido");
+        const merge = confirm(`Importar ${data.cards.length} itens?\n\nOK = MESCLAR com os atuais\nCancelar = SUBSTITUIR tudo`);
+        if (merge) {
+          const existingIds = new Set(cards.map(c => c.id));
+          const novos = data.cards.filter(c => !existingIds.has(c.id));
+          setCards([...cards, ...novos]);
+          showToast(`${novos.length} novos itens importados!`);
+        } else {
+          setCards(data.cards);
+          showToast(`${data.cards.length} itens substituíram a base.`);
+        }
+      } catch (err) { alert("Erro ao importar: " + err.message); }
+    };
+    r.readAsText(f);
+    e.target.value = "";
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#1a1f2e",border:"1px solid #2d3748",borderRadius:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",padding:20}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <p style={{fontWeight:600,fontSize:16,color:"#90cdf4",margin:0}}>⚙️ Configurações</p>
+          <button style={{background:"transparent",border:"none",color:"#a0aec0",fontSize:20,cursor:"pointer"}} onClick={onClose}>✕</button>
+        </div>
+
+        <div style={S.card}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>🔑 Chave da API Anthropic</p>
+          <p style={{fontSize:12,color:"#718096",marginBottom:10,lineHeight:1.5}}>
+            Necessária para extrair questões de imagens, gerar flashcards e usar o tutor.
+            Crie em <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:"#63b3ed"}}>console.anthropic.com/settings/keys</a>.
+            Sua chave fica salva SÓ neste navegador.
+          </p>
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <input type={showKey?"text":"password"} style={{...S.inp,flex:1}} placeholder="sk-ant-..." value={key} onChange={e => setKey(e.target.value)}/>
+            <button style={{...S.btn(),padding:"9px 12px"}} onClick={() => setShowKey(s => !s)}>{showKey?"🙈":"👁"}</button>
+          </div>
+          <button style={{...S.btn("primary"),width:"100%"}} onClick={handleSaveKey}>Salvar chave</button>
+        </div>
+
+        <div style={S.card}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>
+            ☁️ Sincronização entre computadores (GitHub Gist)
+            {syncState?.status === "ok" && <span style={{marginLeft:8,fontSize:11,color:"#9ae6b4"}}>● conectado</span>}
+            {syncState?.status === "error" && <span style={{marginLeft:8,fontSize:11,color:"#feb2b2"}}>● erro</span>}
+            {syncState?.status === "syncing" && <span style={{marginLeft:8,fontSize:11,color:"#90cdf4"}}>● sincronizando…</span>}
+          </p>
+          <p style={{fontSize:12,color:"#718096",marginBottom:10,lineHeight:1.5}}>
+            Cria um gist privado na sua conta GitHub e mantém seus cards sincronizados entre computadores.
+            Gere um token (escopo <code style={{background:"#131720",padding:"1px 4px",borderRadius:3}}>gist</code>) em{" "}
+            <a href="https://github.com/settings/tokens?type=beta" target="_blank" style={{color:"#63b3ed"}}>github.com/settings/tokens</a>.
+          </p>
+          <p style={{...S.lbl, marginTop:6}}>Personal Access Token</p>
+          <div style={{display:"flex",gap:6,marginBottom:8}}>
+            <input type={showGh?"text":"password"} style={{...S.inp,flex:1}} placeholder="ghp_… ou github_pat_…" value={ghToken} onChange={e => setGhTokenLocal(e.target.value)}/>
+            <button style={{...S.btn(),padding:"9px 12px"}} onClick={() => setShowGh(s => !s)}>{showGh?"🙈":"👁"}</button>
+          </div>
+          <p style={{...S.lbl, marginTop:6}}>Gist ID (deixe em branco se é a primeira máquina)</p>
+          <input style={{...S.inp, marginBottom:10}} placeholder="ex.: abc123… (cola do outro computador)" value={gistId} onChange={e => setGistIdLocal(e.target.value)}/>
+
+          {!getGistId() ? (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <button style={{...S.btn("primary"),width:"100%"}} disabled={syncBusy} onClick={handleCreateGist}>
+                {syncBusy ? "Criando…" : `🆕 Criar novo gist com meus ${cards.length} cards`}
+              </button>
+              <button style={{...S.btn(),width:"100%"}} disabled={syncBusy} onClick={handleConnectGist}>
+                {syncBusy ? "Conectando…" : "🔗 Conectar a um gist existente"}
+              </button>
+            </div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{background:"#131720",padding:"8px 10px",borderRadius:6,fontSize:11,color:"#a0aec0",wordBreak:"break-all"}}>
+                <strong style={{color:"#90cdf4"}}>Gist ID:</strong> {getGistId()}<br/>
+                {syncState?.lastSync && <><strong style={{color:"#90cdf4"}}>Última sync:</strong> {new Date(syncState.lastSync).toLocaleString("pt-BR")}</>}
+                {syncState?.error && <><br/><strong style={{color:"#feb2b2"}}>Erro:</strong> {syncState.error}</>}
+              </div>
+              <button style={{...S.btn("primary"),width:"100%"}} disabled={syncBusy} onClick={handleSyncNow}>
+                {syncBusy ? "Sincronizando…" : "🔄 Sincronizar agora"}
+              </button>
+              <button style={{...S.btn(),width:"100%"}} onClick={handleSaveGh}>Salvar token/ID</button>
+              <button style={{...S.btn("danger"),width:"100%",fontSize:12}} onClick={handleDisconnect}>Desconectar esta máquina</button>
+            </div>
+          )}
+        </div>
+
+        <div style={S.card}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>💾 Backup dos dados</p>
+          <p style={{fontSize:12,color:"#718096",marginBottom:10,lineHeight:1.5}}>
+            Total: <strong style={{color:"#90cdf4"}}>{cards.length}</strong> itens. Recomendado exportar 1x por semana.
+            Os dados ficam salvos no navegador — limpe-o e você perde tudo se não tiver backup!
+          </p>
+          <div style={{display:"flex",gap:8,flexDirection:"column"}}>
+            <button style={{...S.btn("success"),width:"100%"}} onClick={() => { exportBackup(cards); showToast("Backup exportado!"); }}>⬇️ Exportar backup (.json)</button>
+            <button style={{...S.btn(),width:"100%"}} onClick={() => importRef.current.click()}>⬆️ Importar backup (.json)</button>
+            <input ref={importRef} type="file" accept=".json,application/json" style={{display:"none"}} onChange={handleImport}/>
+          </div>
+        </div>
+
+        <div style={{...S.card,marginBottom:0}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>ℹ️ Sobre</p>
+          <p style={{fontSize:12,color:"#718096",margin:0,lineHeight:1.6}}>
+            Caderno de Erros — sistema de revisão espaçada com IA.<br/>
+            Para continuar melhorando este app com IA, abra o Cowork e peça para ler <code style={{background:"#131720",padding:"1px 5px",borderRadius:4}}>codigo-fonte.jsx</code>.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FlashcardEditModal({card, onSave, onClose}) {
+  const [frente, setFrente] = useState({html: card.frente||"", img: card.frenteImg||null});
+  const [verso, setVerso] = useState({html: card.verso||"", img: card.versoImg||null});
+  const [chatOpen, setChatOpen] = useState(false);
+  const [msgs, setMsgs] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState(null);
+  const endRef = useRef();
+  useEffect(() => { endRef.current?.scrollIntoView({behavior:"smooth"}); }, [msgs]);
+
+  async function sendMsg() {
+    const txt = input.trim(); if (!txt) return;
+    const history = [...msgs, {role:"user", content: txt}];
+    setMsgs(history); setInput(""); setLoading(true);
+    try {
+      const data = await callAnthropic({
+        model: "claude-sonnet-4-5",
+        max_tokens: 2000,
+        system: `Tutor médico melhorando flashcard.\nFRENTE: ${stripHtml(frente.html)}\nVERSO: ${stripHtml(verso.html)}\nAo sugerir novo flashcard inclua:\n---FLASHCARD---\nFRENTE: <texto>\nVERSO: <texto>\n---FIM---`,
+        messages: history,
+      });
+      const reply = data.content?.map(i => i.text || "").join("") || "";
+      const match = reply.match(/---FLASHCARD---([\s\S]*?)---FIM---/);
+      if (match) {
+        const fM = match[1].match(/FRENTE:\s*([\s\S]+?)(?=\nVERSO:)/);
+        const vM = match[1].match(/VERSO:\s*([\s\S]+?)(?=\n---FIM---|$)/);
+        if (fM && vM) setPending({frente: fM[1].trim(), verso: vM[1].trim()});
+      }
+      setMsgs([...history, {role:"assistant", content: reply}]);
+    } catch (e) {
+      setMsgs(m => [...m, {role:"assistant", content: "Erro: " + e.message}]);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"#1a1f2e",border:"1px solid #2d3748",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #000a",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid #1e2535",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <p style={{fontWeight:600,fontSize:15,color:"#90cdf4",margin:0}}>✏️ Editar flashcard</p>
+          <button style={{...S.btn(chatOpen?"":"primary"),fontSize:12,padding:"6px 12px"}} onClick={() => setChatOpen(o => !o)}>{chatOpen?"← Editor":"💬 Tutor"}</button>
+        </div>
+        {!chatOpen ? (
+          <div style={{overflowY:"auto",padding:18,flex:1}}>
+            <p style={{...S.lbl,marginBottom:6}}>Frente</p>
+            <RichEditor value={frente} onChange={setFrente} placeholder="Pergunta…" minHeight={70}/>
+            <p style={{...S.lbl,marginTop:14,marginBottom:6}}>Verso</p>
+            <RichEditor value={verso} onChange={setVerso} placeholder="Resposta…" minHeight={70}/>
+            <div style={{display:"flex",gap:8,marginTop:18}}>
+              <button style={{...S.btn(),flex:1,padding:11}} onClick={onClose}>Cancelar</button>
+              <button style={{...S.btn("primary"),flex:1,padding:11}} onClick={() => onSave({frente: frente.html, frenteImg: frente.img, verso: verso.html, versoImg: verso.img})}>Salvar</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
+            <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+              {msgs.length === 0 && <p style={{color:"#4a5568",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7}}>Explique o que não ficou bom no flashcard.</p>}
+              {msgs.map((m, i) => (
+                <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"90%"}}>
+                  <div style={{background: m.role==="user"?"#2b6cb0":"#131720", border: m.role==="assistant"?"1px solid #2d3748":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#e2e8f0", whiteSpace:"pre-wrap"}}>
+                    {m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
+                  </div>
+                </div>
+              ))}
+              {pending && (
+                <div style={{background:"#1c4532",border:"1px solid #38a169",borderRadius:12,padding:"10px 14px"}}>
+                  <p style={{fontSize:12,color:"#9ae6b4",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                  <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 2px"}}><strong>Frente:</strong> {pending.frente}</p>
+                  <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...S.btn("success"),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => {setFrente(f => ({...f, html: pending.frente})); setVerso(v => ({...v, html: pending.verso})); setPending(null); setChatOpen(false);}}>Aplicar</button>
+                    <button style={{...S.btn(),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => setPending(null)}>Descartar</button>
+                  </div>
+                </div>
+              )}
+              {loading && <div style={{alignSelf:"flex-start",background:"#131720",border:"1px solid #2d3748",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#718096"}}>Pensando…</div>}
+              <div ref={endRef}/>
+            </div>
+            <div style={{padding:"10px 12px",borderTop:"1px solid #1e2535",display:"flex",gap:8,flexShrink:0}}>
+              <input style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px"}} placeholder="Explique o problema…" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key==="Enter" && !e.shiftKey && sendMsg()}/>
+              <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0}} onClick={sendMsg} disabled={loading||!input.trim()}>↑</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [lightbox, setLightbox] = useState(null);
+  const [view, setView] = useState("home");
+  const [cards, setCards] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [reviewQueue, setReviewQueue] = useState([]);
+  const [reviewIdx, setReviewIdx] = useState(0);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [addMode, setAddMode] = useState("questao");
+  const emptyForm = {area:"Clínica Médica",tema:"",enunciado:"",alternativas:["","","","",""],correta:"",alternativaMarcada:"",explicacao:"",exameCrop:null,comentario:"",comentarioImgs:[]};
+  const [form, setForm] = useState(emptyForm);
+  const [imgFiles, setImgFiles] = useState([]);
+  const [imgPreviews, setImgPreviews] = useState([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [toast, setToast] = useState("");
+  const [editingCard, setEditingCard] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatContext, setChatContext] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [pendingFlashcard, setPendingFlashcard] = useState(null);
+  const [bankTab, setBankTab] = useState("questoes");
+  const [bankFilter, setBankFilter] = useState("Todas");
+  const [bankExpandedId, setBankExpandedId] = useState(null);
+  const [bankHighlightId, setBankHighlightId] = useState(null);
+  const [bankSearch, setBankSearch] = useState("");
+  const [bankPage, setBankPage] = useState(1);
+  const BANK_PAGE_SIZE = 30;
+  const [configOpen, setConfigOpen] = useState(false);
+  const [sendingToMedcof, setSendingToMedcof] = useState(null); // id do card em envio
+  const [deletedIds, setDeletedIds] = useState({});
+  const [syncState, setSyncState] = useState({ status: "idle", error: "", lastSync: getLastSync() });
+  const fileRef = useRef();
+  const chatEndRef = useRef();
+  const pushTimerRef = useRef(null);
+  const firstSaveSkipRef = useRef(true); // evita push imediatamente após load
+
+  // Load: primeiro local, depois tenta pull do Gist (se configurado) e mescla
+  useEffect(() => {
+    (async () => {
+      const local = await loadData();
+      setCards(local.cards || []);
+      setDeletedIds(local.deletedIds || {});
+      setLoaded(true);
+
+      if (getGhToken() && getGistId()) {
+        setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+        try {
+          const remote = await gistFetch(getGistId());
+          const merged = mergeData(local, remote);
+          setCards(merged.cards);
+          setDeletedIds(merged.deletedIds);
+          const ts = nowIso();
+          saveLastSync(ts);
+          setSyncState({ status: "ok", error: "", lastSync: ts });
+          firstSaveSkipRef.current = true; // evita re-push do que acabou de vir
+        } catch (e) {
+          console.warn("Sync pull falhou:", e);
+          setSyncState({ status: "error", error: e.message || String(e), lastSync: getLastSync() });
+        }
+      }
+    })();
+  }, []);
+
+  // Save local imediato + push debounced pro Gist
+  useEffect(() => {
+    if (!loaded) return;
+    saveData({ cards, deletedIds });
+    if (firstSaveSkipRef.current) { firstSaveSkipRef.current = false; return; }
+    if (!getGhToken() || !getGistId()) return;
+
+    if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+    pushTimerRef.current = setTimeout(async () => {
+      setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+      try {
+        await gistUpdate(getGistId(), cards, deletedIds);
+        const ts = nowIso();
+        saveLastSync(ts);
+        setSyncState({ status: "ok", error: "", lastSync: ts });
+      } catch (e) {
+        console.warn("Sync push falhou:", e);
+        setSyncState({ status: "error", error: e.message || String(e), lastSync: getLastSync() });
+      }
+    }, 3000);
+  }, [cards, deletedIds, loaded]);
+  useEffect(() => { if (chatOpen) setTimeout(() => chatEndRef.current?.scrollIntoView({behavior:"smooth"}), 50); }, [chatOpen, chatMessages]);
+
+  // Lembrete de backup (se tem >5 cards e último backup foi há >7 dias)
+  useEffect(() => {
+    if (!loaded || cards.length < 5) return;
+    const lastBackup = localStorage.getItem("last_backup_date");
+    const daysSince = lastBackup ? (Date.now() - new Date(lastBackup).getTime()) / 86400000 : 999;
+    if (daysSince > 7) {
+      setTimeout(() => showToast("💾 Faça um backup! (Configurações)"), 1500);
+    }
+  }, [loaded]);
+
+  // Import via URL hash (extensão do MedCof manda cards por #newcard=<base64> ou #newcards=<base64 array>)
+  // Dispara tanto no primeiro load quanto quando a extensão atualiza o hash numa aba já aberta.
+  useEffect(() => {
+    if (!loaded) return;
+
+    function tryImportFromHash() {
+      const h = window.location.hash || "";
+      let payload = null;
+      let isArray = false;
+      if (h.startsWith("#newcards=")) {
+        payload = h.slice("#newcards=".length);
+        isArray = true;
+      } else if (h.startsWith("#newcard=")) {
+        payload = h.slice("#newcard=".length);
+        isArray = false;
+      } else {
+        return;
+      }
+      try {
+        const json = decodeURIComponent(escape(atob(payload)));
+        const parsed = JSON.parse(json);
+        const novos = isArray ? (Array.isArray(parsed) ? parsed : [parsed]) : [parsed];
+        if (!novos.length) return;
+
+        // Detecta batch de CofCards do MedCof:
+        // todos têm medcofId, são flashcards, e nenhum tem origemUrl (não veio do Alt+Shift+Q).
+        const isCofCardsBatch = novos.length >= 1
+          && novos.every(c => c && c.medcofId && c.tipo === "flashcard" && !c.origemUrl);
+
+        if (isCofCardsBatch) {
+          setCards(prev => {
+            // Indices para matching
+            const flashcards = prev.filter(c => c.tipo === "flashcard");
+            const questoes = prev.filter(c => c.tipo === "questao");
+            const flashcardsByFrente = new Map();
+            const flashcardsByMedcofId = new Map();
+            for (const fc of flashcards) {
+              const k = normalizeText(fc.frente);
+              if (k) flashcardsByFrente.set(k, fc);
+              if (fc.medcofId) flashcardsByMedcofId.set(String(fc.medcofId), fc);
+            }
+            // Stage 1 — match com flashcard existente (por medcofId OU por frente normalizada exata)
+            // Atualiza apenas SM-2 + medcofId, preserva tudo (origemId etc.).
+            const updates = new Map();
+            const restantes = [];
+            for (const cof of novos) {
+              let match = cof.medcofId ? flashcardsByMedcofId.get(String(cof.medcofId)) : null;
+              if (!match) {
+                const k = normalizeText(cof.frente);
+                if (k) match = flashcardsByFrente.get(k);
+              }
+              if (match && !updates.has(match.id)) {
+                updates.set(match.id, {
+                  interval: cof.interval,
+                  repetitions: cof.repetitions,
+                  easeFactor: cof.easeFactor,
+                  nextReview: cof.nextReview,
+                  medcofId: match.medcofId || cof.medcofId,
+                  updatedAt: nowIso(),
+                });
+              } else {
+                restantes.push(cof);
+              }
+            }
+            const stage1Count = updates.size;
+
+            // Aplica updates do Stage 1 (sem duplicar nada)
+            const next = prev.map(c => {
+              const u = updates.get(c.id);
+              return u ? { ...c, ...u } : c;
+            });
+
+            // Stage 2 — match fuzzy com enunciado de QUESTÃO (Jaccard ≥ 0.80)
+            // Cria flashcard novo COM origemId apontando pra questão.
+            const usados = new Set(next.map(c => c.id));
+            const questaoLinkada = new Set();   // evita 2 cofcards apontando pra mesma questão
+            const novosCards = [];
+            let stage2Count = 0;
+            let stage3Count = 0;
+            const baseId = Date.now();
+
+            for (const cof of restantes) {
+              let bestScore = 0;
+              let bestQ = null;
+              for (const q of questoes) {
+                if (questaoLinkada.has(q.id)) continue;
+                const s = jaccardSimilarity(cof.frente, q.enunciado);
+                if (s > bestScore) { bestScore = s; bestQ = q; }
+                if (s >= 0.99) break; // match perfeito, não procura mais
+              }
+              let id = baseId + novosCards.length + 1;
+              while (usados.has(id)) id++;
+              usados.add(id);
+              const novo = {
+                id,
+                tipo: "flashcard",
+                frente: cof.frente,
+                verso: cof.verso,
+                area: "MedCof",
+                tema: "",
+                medcofId: cof.medcofId,
+                interval: cof.interval,
+                repetitions: cof.repetitions,
+                easeFactor: cof.easeFactor,
+                nextReview: cof.nextReview,
+                createdAt: nowIso(),
+                updatedAt: nowIso(),
+              };
+              if (bestQ && bestScore >= COFCARDS_FUZZY_THRESHOLD) {
+                novo.origemId = bestQ.id;
+                questaoLinkada.add(bestQ.id);
+                stage2Count++;
+              } else {
+                stage3Count++;
+              }
+              novosCards.push(novo);
+            }
+
+            console.log(`[CAD] Import CofCards: stage1(SM-2 atualizado)=${stage1Count}, stage2(linkado a questão)=${stage2Count}, stage3(solto)=${stage3Count}`);
+            showToast(`✅ MedCof: ${stage1Count} atualizados, ${stage2Count} linkados, ${stage3Count} novos`);
+            return [...next, ...novosCards];
+          });
+          // Limpa o hash
+          try { history.replaceState(null, "", window.location.pathname + window.location.search); }
+          catch (_) { window.location.hash = ""; }
+          return;
+        }
+
+        // Caminho normal — Alt+Shift+Q (questão + flashcard juntos)
+        setCards(prev => {
+          const jaImportados = new Set();
+          // Detecta duplicatas: cards com mesmo origemUrl criados há < 8s (evita duplo clique)
+          const recenteCutoff = Date.now() - 8000;
+          for (const c of prev) {
+            if (c.origemUrl && (c.id || 0) > recenteCutoff) jaImportados.add(c.origemUrl + "|" + (c.tipo || ""));
+          }
+          // Dedup por medcofId
+          const medcofIdsExistentes = new Set(prev.map(c => c.medcofId).filter(Boolean));
+          const aAdicionar = novos.filter(nc => {
+            if (nc.medcofId && medcofIdsExistentes.has(nc.medcofId)) return false;
+            if (nc.medcofId) medcofIdsExistentes.add(nc.medcofId);
+            const chave = (nc.origemUrl || "") + "|" + (nc.tipo || "");
+            if (nc.origemUrl && jaImportados.has(chave)) return false;
+            jaImportados.add(chave);
+            return true;
+          });
+          if (!aAdicionar.length) {
+            showToast("⚠️ Card(s) já importado(s) há pouco, ignorado.");
+            return prev;
+          }
+          // Resolve IDs únicos (evita colisão Date.now()+1 entre questão e flashcard)
+          const usados = new Set(prev.map(c => c.id));
+          const corrigidos = aAdicionar.map(nc => {
+            let id = nc.id || Date.now();
+            while (usados.has(id)) id++;
+            usados.add(id);
+            return { ...nc, id, updatedAt: nc.updatedAt || nowIso() };
+          });
+          // Corrige referência origemId do flashcard para o novo id da questão
+          const questaoOriginal = aAdicionar.find(c => c.tipo === "questao");
+          if (questaoOriginal) {
+            const questaoCorrigida = corrigidos.find(c => c.tipo === "questao");
+            if (questaoCorrigida && questaoOriginal.id !== questaoCorrigida.id) {
+              for (const c of corrigidos) {
+                if (c.tipo === "flashcard" && c.origemId === questaoOriginal.id) {
+                  c.origemId = questaoCorrigida.id;
+                }
+              }
+            }
+          }
+          const tipos = corrigidos.map(c => c.tipo === "flashcard" ? "flashcard" : "questão");
+          const resumo = tipos.length > 1 ? `${tipos.length} cards (${tipos.join(" + ")})` : tipos[0];
+          showToast(`✅ ${resumo} importado${tipos.length > 1 ? "s" : ""} da extensão MedCof!`);
+          return [...prev, ...corrigidos];
+        });
+        // Limpa o hash pra não reimportar em reload
+        // Usa location.hash="" em vez de history.replaceState (evita erro de origin em file://)
+        try { history.replaceState(null, "", window.location.pathname + window.location.search); }
+        catch (_) { window.location.hash = ""; }
+      } catch (e) {
+        showToast("❌ Erro ao importar: " + e.message);
+        console.error("Import hash error:", e);
+      }
+    }
+
+    tryImportFromHash(); // checa no load inicial
+    window.addEventListener("hashchange", tryImportFromHash);
+    return () => window.removeEventListener("hashchange", tryImportFromHash);
+  }, [loaded]);
+
+  // Bridge REVERSO: app → extensão → MedCof
+  // Escuta status que o content-app.js repassa do background via window.postMessage
+  useEffect(() => {
+    function onMsg(event) {
+      if (event.source !== window) return;
+      const m = event.data;
+      if (!m || typeof m !== "object") return;
+      if (m.type !== "CAD_MEDCOF_STATUS") return;
+      const { cardId, ok, stage, message } = m;
+      console.log("[APP] CAD_MEDCOF_STATUS", m);
+      if (stage === "queued") {
+        if (ok) showToast("📤 Abrindo MedCof…");
+        else { showToast("❌ " + (message || "Erro")); setSendingToMedcof(null); }
+      } else if (stage === "filled") {
+        if (ok) showToast("✍️ Card preenchido — revise e clique 'Criar Flashcard'");
+        else { showToast("❌ " + (message || "Erro ao preencher")); setSendingToMedcof(null); }
+      } else if (stage === "sent") {
+        // Usuário clicou Criar → modal sumiu
+        setCards(prev => prev.map(c => c.id === cardId ? { ...c, enviadoMedcof: new Date().toISOString(), updatedAt: nowIso() } : c));
+        showToast("✅ Card criado no MedCof!");
+        setSendingToMedcof(null);
+      } else if (stage === "error") {
+        showToast("❌ " + (message || "Erro"));
+        setSendingToMedcof(null);
+      }
+    }
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  // Recebe imagens vindas pelo canal storage (content-app.js → CAD_PATCH_CARD_IMGS)
+  // Patch aplicado depois que os cards já foram importados pelo hash
+  useEffect(() => {
+    function onImgs(event) {
+      if (event.source !== window) return;
+      const m = event.data;
+      if (!m || m.type !== "CAD_PATCH_CARD_IMGS") return;
+      const { imgs } = m; // { cardId: [dataUrl, ...] }
+      if (!imgs || typeof imgs !== "object") return;
+      console.log("[APP] CAD_PATCH_CARD_IMGS recebido para ids:", Object.keys(imgs));
+      setCards(prev => prev.map(c => {
+        const novasImgs = imgs[c.id] || imgs[String(c.id)];
+        if (novasImgs && novasImgs.length > 0) return { ...c, enunciadoImgs: novasImgs, updatedAt: nowIso() };
+        return c;
+      }));
+    }
+    window.addEventListener("message", onImgs);
+    return () => window.removeEventListener("message", onImgs);
+  }, []);
+
+  function enviarParaMedcof(card) {
+    if (sendingToMedcof) { showToast("⏳ Já tem um card sendo enviado, aguarde…"); return; }
+    setSendingToMedcof(card.id);
+    showToast("📤 Enviando ao MedCof…");
+    window.postMessage({
+      type: "CAD_SEND_TO_MEDCOF",
+      cardId: card.id,
+      frente: card.frente || "",
+      verso: card.verso || ""
+    }, "*");
+    // safety: se nenhum status chegar em 90s, libera o botão
+    setTimeout(() => setSendingToMedcof(prev => prev === card.id ? null : prev), 90000);
+  }
+
+  function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
+
+  function copyText(txt, html) {
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        const item = new ClipboardItem({"text/plain": new Blob([txt],{type:"text/plain"}), "text/html": new Blob([html||txt],{type:"text/html"})});
+        navigator.clipboard.write([item]).then(() => showToast("Copiado!")).catch(() => fallbackCopy(txt));
+      } else fallbackCopy(txt);
+    } catch { fallbackCopy(txt); }
+  }
+
+  function fallbackCopy(txt) {
+    const ta = document.createElement("textarea");
+    ta.value = txt;
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;";
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand("copy"); showToast("Copiado!"); } catch { showToast("Não foi possível copiar"); }
+    document.body.removeChild(ta);
+  }
+
+  function openTutorWithContext(ctx) { setChatContext(ctx); setChatMessages([]); setPendingFlashcard(null); setChatOpen(true); }
+
+  function startReview(tipo) {
+    const t = today();
+    // Questões nunca entram no fluxo de revisão — só flashcards
+    const q = cards.filter(c => c.tipo !== "questao" && (tipo==="all"||c.tipo===tipo) && c.nextReview<=t).sort(() => Math.random()-0.5);
+    setReviewQueue(q); setReviewIdx(0); setShowAnswer(false); setView("review");
+  }
+
+  function gradeCard(grade) {
+    const card = reviewQueue[reviewIdx];
+    const updated = {...card, ...calcNextReview(card, grade), updatedAt: nowIso()};
+    setCards(prev => prev.map(c => c.id===card.id ? updated : c));
+    if (reviewIdx+1 < reviewQueue.length) { setReviewIdx(i => i+1); setShowAnswer(false); }
+    else setView("reviewDone");
+  }
+
+  function addImgFile(f) {
+    setImgFiles(prev => [...prev, f]);
+    const r = new FileReader();
+    r.onload = ev => setImgPreviews(prev => [...prev, ev.target.result]);
+    r.readAsDataURL(f);
+  }
+
+  function removeImgAt(i) {
+    setImgFiles(prev => prev.filter((_, idx) => idx !== i));
+    setImgPreviews(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  function handleImgChange(e) { Array.from(e.target.files).forEach(addImgFile); e.target.value = ""; }
+
+  function handlePasteGlobal(e) {
+    if (view !== "add") return;
+    if (e.target.closest && e.target.closest("#comentario-section")) return;
+    const items = e.clipboardData?.items; if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) { addImgFile(item.getAsFile()); break; }
+    }
+  }
+
+  useEffect(() => {
+    window.addEventListener("paste", handlePasteGlobal);
+    return () => window.removeEventListener("paste", handlePasteGlobal);
+  }, [view]);
+
+  // Listener para a extensão do navegador (recorte automático do cursinho)
+  useEffect(() => {
+    async function onExtCrop(e) {
+      const { dataUrl } = e.detail || {};
+      if (!dataUrl) return;
+      try {
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const f = new File([blob], "recorte.jpg", { type: "image/jpeg" });
+        setView("add");
+        addImgFile(f);
+        showToast("📎 Recorte recebido da extensão!");
+      } catch (err) {
+        showToast("Erro ao receber recorte");
+      }
+    }
+    window.addEventListener("CADERNO_CROP", onExtCrop);
+    return () => window.removeEventListener("CADERNO_CROP", onExtCrop);
+  }, []);
+
+  async function cropImageRegion(dataUrl, box) {
+    return new Promise(res => {
+      const img = new Image();
+      img.onload = () => {
+        const W = img.naturalWidth, H = img.naturalHeight;
+        const c = document.createElement("canvas");
+        c.width = box.w * W; c.height = box.h * H;
+        c.getContext("2d").drawImage(img, box.x*W, box.y*H, box.w*W, box.h*H, 0, 0, box.w*W, box.h*H);
+        res(c.toDataURL("image/jpeg", 0.93));
+      };
+      img.src = dataUrl;
+    });
+  }
+
+  async function extractWithAI() {
+    if (!imgFiles.length) return;
+    setAiLoading(true); setAiError("");
+    try {
+      const encoded = await Promise.all(imgFiles.map(async f => {
+        const b64 = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result.split(",")[1]);
+          r.onerror = rej;
+          r.readAsDataURL(f);
+        });
+        return { b64, mt: f.type || "image/jpeg" };
+      }));
+      const imgs = encoded.map(e => ({type:"image", source:{type:"base64", media_type: e.mt, data: e.b64}}));
+      const data = await callAnthropic({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1200,
+        messages: [{role:"user", content: [...imgs, {type:"text", text:`Extraia a questão médica. Se houver exame de imagem indique região como proporções 0-1. Retorne SOMENTE JSON:\n{"enunciado":"...","alternativas":["A)...","B)...","C)...","D)...","E)..."],"correta":"A","explicacao":"...","tema":"...","area":"Clínica Médica","exameCrop":{"imgIndex":0,"x":0.05,"y":0.55,"w":0.90,"h":0.40}}\nSe não houver exame omita exameCrop. Área: Clínica Médica,Cirurgia,GO,Pediatria,Preventiva,Psiquiatria,Neurologia,Ortopedia,Outro.`}]}]
+      });
+      const text = data.content?.map(i => i.text || "").join("") || "";
+      const parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
+      let exameCropUrl = null;
+      if (parsed.exameCrop) {
+        const {imgIndex, x, y, w, h} = parsed.exameCrop;
+        const src = imgPreviews[imgIndex??0];
+        if (src) exameCropUrl = await cropImageRegion(src, {x,y,w,h});
+      }
+      setForm(f => ({...f,
+        enunciado: parsed.enunciado||"",
+        alternativas: parsed.alternativas?.length ? parsed.alternativas : ["","","","",""],
+        correta: parsed.correta||"",
+        explicacao: parsed.explicacao||"",
+        tema: parsed.tema||"",
+        area: AREAS.includes(parsed.area) ? parsed.area : f.area,
+        exameCrop: exameCropUrl,
+      }));
+      showToast("Extraído com sucesso!");
+    } catch (e) {
+      setAiError(e.message.includes("API KEY") ? "Configure sua chave da API nas Configurações" : "Não foi possível extrair. Preencha manualmente.");
+    }
+    setAiLoading(false);
+  }
+
+  async function generateFlashcardAI(src) {
+    const q = src || form;
+    if (!q.enunciado) return;
+    setAiLoading(true); setAiError("");
+    try {
+      const content = [];
+      const imgs = q.comentarioImgs || [];
+      for (const imgUrl of imgs) {
+        const b64 = imgUrl.split(",")[1];
+        const mt = imgUrl.match(/data:(.*?);/)?.[1] || "image/jpeg";
+        content.push({type:"image", source:{type:"base64", media_type: mt, data: b64}});
+      }
+      const comentTxt = imgs.length>0 ? (q.comentario?`\nComentário (+ ${imgs.length} imagem(ns)): ${q.comentario}`:`\n(comentário nas imagens acima)`) : (q.comentario?`\nComentário: ${q.comentario}`:"");
+      const erroTxt = q.alternativaMarcada && q.correta && q.alternativaMarcada!==q.correta ? `\nO estudante marcou ${q.alternativaMarcada} (errada). Correta: ${q.correta}. Foque no raciocínio que diferencia essas duas alternativas.` : "";
+      content.push({type:"text", text:`Crie flashcard baseado nesta questão e comentário do professor. Retorne SOMENTE JSON:\n{"frente":"pergunta objetiva 1-2 frases","verso":"resposta com conceito-chave e raciocínio"}\nQuestão: ${q.enunciado}\nAlternativas: ${q.alternativas?.join(" ")}\nCorreta: ${q.correta}${erroTxt}${comentTxt}`});
+      const data = await callAnthropic({
+        model: "claude-sonnet-4-5",
+        max_tokens: 2000,
+        messages: [{role:"user", content}],
+      });
+      const text = data.content?.map(i => i.text || "").join("") || "";
+      const parsed = JSON.parse(text.replace(/```json|```/g,"").trim());
+      const fc = {
+        id: Date.now()+1, tipo: "flashcard",
+        area: q.area, tema: q.tema,
+        frente: parsed.frente, verso: parsed.verso,
+        frenteImg: null, versoImg: null,
+        origemId: q.id||null,
+        origemSnapshot: {
+          enunciado: q.enunciado||null, alternativas: q.alternativas||null,
+          correta: q.correta||null, alternativaMarcada: q.alternativaMarcada||null,
+          explicacao: q.explicacao||null, comentario: q.comentario||null,
+          exameCrop: q.exameCrop||null,
+        },
+        interval: 1, repetitions: 0, easeFactor: 2.5,
+        nextReview: today(), createdAt: today(), updatedAt: nowIso(),
+      };
+      setCards(prev => [...prev, fc]);
+      showToast("Flashcard gerado!");
+    } catch (e) {
+      setAiError(e.message.includes("API KEY") ? "Configure sua chave da API nas Configurações" : "Erro ao gerar flashcard.");
+    }
+    setAiLoading(false);
+  }
+
+  async function saveWithOption(option) {
+    if (!form.enunciado) return;
+    const base = {id: Date.now(), area: form.area, tema: form.tema, interval: 1, repetitions: 0, easeFactor: 2.5, nextReview: today(), createdAt: today(), updatedAt: nowIso()};
+    if (option === "questao" || option === "ambos") {
+      setCards(prev => [...prev, {...base, tipo:"questao", enunciado: form.enunciado, alternativas: form.alternativas.filter(a => a), correta: form.correta, alternativaMarcada: form.alternativaMarcada, explicacao: form.explicacao, exameCrop: form.exameCrop||null}]);
+    }
+    if (option === "flashcard" || option === "ambos") { await generateFlashcardAI(form); }
+    if (option === "questao") showToast("Questão salva!");
+    setForm(emptyForm); setImgFiles([]); setImgPreviews([]); setView("home");
+  }
+
+  function deleteCard(id) {
+    setCards(prev => prev.filter(c => c.id !== id));
+    setDeletedIds(prev => ({ ...prev, [id]: nowIso() }));
+    showToast("Removido.");
+  }
+
+  function saveEditedCard(id, fields) {
+    setCards(prev => prev.map(c => c.id === id ? {...c, ...fields, updatedAt: nowIso()} : c));
+    setEditingCard(null);
+    showToast("Flashcard atualizado!");
+  }
+
+  async function sendChat() {
+    const msg = chatInput.trim(); if (!msg) return;
+    const newMessages = [...chatMessages, {role:"user", content: msg}];
+    setChatMessages(newMessages); setChatInput(""); setChatLoading(true);
+    try {
+      let system = `Tutor médico especializado em residência médica no Brasil. Responda de forma clara e objetiva.\nSempre que mencionar, criticar ou sugerir um flashcard melhorado, inclua OBRIGATORIAMENTE no final da resposta:\n---FLASHCARD---\nFRENTE: <texto na mesma linha>\nVERSO: <texto na mesma linha>\n---FIM---`;
+      if (chatContext) {
+        if (chatContext.tipo === "flashcard") {
+          system += `\n\nFLASHCARD:\nFRENTE: ${stripHtml(chatContext.frente)||""}\nVERSO: ${stripHtml(chatContext.verso)||""}`;
+          if (chatContext.enunciado) {
+            system += `\n\nQUESTÃO DE ORIGEM:\nÁrea: ${chatContext.area||""}\n${chatContext.enunciado}`;
+            if (chatContext.alternativas?.length) system += `\n${chatContext.alternativas.filter(Boolean).map((a,i) => `${["A","B","C","D","E"][i]}) ${a}`).join("\n")}`;
+            if (chatContext.correta) system += `\nCorreta: ${chatContext.correta}`;
+            if (chatContext.alternativaMarcada) system += `\nEstudante marcou: ${chatContext.alternativaMarcada}`;
+            if (chatContext.explicacao) system += `\nExplicação: ${chatContext.explicacao}`;
+            if (chatContext.comentario) system += `\nComentário: ${chatContext.comentario}`;
+          }
+        } else if (chatContext.enunciado) {
+          system += `\n\nQUESTÃO:\nÁrea: ${chatContext.area||""} · Tema: ${chatContext.tema||""}\n${chatContext.enunciado}`;
+          if (chatContext.alternativas?.length) system += `\n${chatContext.alternativas.filter(Boolean).map((a,i) => `${["A","B","C","D","E"][i]}) ${a}`).join("\n")}`;
+          if (chatContext.correta) system += `\nCorreta: ${chatContext.correta}`;
+          if (chatContext.alternativaMarcada) system += `\nEstudante marcou: ${chatContext.alternativaMarcada}`;
+          if (chatContext.explicacao) system += `\nExplicação: ${chatContext.explicacao}`;
+          if (chatContext.comentario) system += `\nComentário: ${chatContext.comentario}`;
+        }
+      }
+      const data = await callAnthropic({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1000,
+        system,
+        messages: newMessages,
+      });
+      const reply = data.content?.map(i => i.text || "").join("") || "";
+      const match = reply.match(/---FLASHCARD---([\s\S]*?)---FIM---/);
+      if (match) {
+        const fM = match[1].match(/FRENTE:\s*([\s\S]+?)(?=\nVERSO:)/);
+        const vM = match[1].match(/VERSO:\s*([\s\S]+?)(?=\n---FIM---|$)/);
+        if (fM && vM) setPendingFlashcard({frente: fM[1].trim(), verso: vM[1].trim()});
+      }
+      setChatMessages(prev => [...prev, {role:"assistant", content: reply}]);
+    } catch (e) {
+      setChatMessages(prev => [...prev, {role:"assistant", content: "Erro: " + e.message}]);
+    }
+    setChatLoading(false);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({behavior:"smooth"}), 100);
+  }
+
+  const todayStr = today();
+  // Questões não entram no fluxo de revisão — dueToday conta só flashcards
+  const dueToday = cards.filter(c => c.tipo !== "questao" && c.nextReview <= todayStr).length;
+  const dueQ = 0; // questões removidas do fluxo SR
+  const dueF = cards.filter(c => c.tipo === "flashcard" && c.nextReview <= todayStr).length;
+  const totalQuestoes = cards.filter(c => c.tipo === "questao").length;
+  const totalFlashcards = cards.filter(c => c.tipo === "flashcard").length;
+  const currentCard = reviewQueue[reviewIdx];
+  const isActive = v => view === v || (view === "reviewDone" && v === "review_start") || (view === "review" && v === "review_start");
+
+  if (!loaded) return <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:"#718096"}}>Carregando…</p></div>;
+
+  return (
+    <div style={S.app}>
+      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#276749",color:"#fff",padding:"8px 22px",borderRadius:8,fontSize:13,zIndex:999,fontWeight:500,boxShadow:"0 4px 12px #0006"}}>{toast}</div>}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:992,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
+          <img src={lightbox} style={{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",borderRadius:8}} alt="zoom"/>
+          <button onClick={() => setLightbox(null)} style={{position:"absolute",top:16,right:16,background:"#2d3748",border:"none",color:"#e2e8f0",borderRadius:"50%",width:36,height:36,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+        </div>
+      )}
+      {editingCard && <FlashcardEditModal card={editingCard} onClose={() => setEditingCard(null)} onSave={fields => saveEditedCard(editingCard.id, fields)}/>}
+      {configOpen && <ConfigModal onClose={() => setConfigOpen(false)} cards={cards} setCards={setCards} showToast={showToast} deletedIds={deletedIds} setDeletedIds={setDeletedIds} syncState={syncState} setSyncState={setSyncState}/>}
+
+      <button onClick={() => {
+        if (view === "add" && form.enunciado) openTutorWithContext({...form});
+        else if (view === "review" && currentCard) openTutorWithContext({...currentCard});
+        else setChatOpen(o => !o);
+      }} style={{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:"#2b6cb0",border:"none",color:"#fff",fontSize:22,cursor:"pointer",zIndex:900,boxShadow:"0 4px 16px #0008",display:"flex",alignItems:"center",justifyContent:"center"}}>
+        {chatOpen?"✕":"💬"}
+      </button>
+
+      {chatOpen && (
+        <div style={{position:"fixed",bottom:86,right:16,width:"min(360px, calc(100vw - 32px))",height:440,background:"#1a1f2e",border:"1px solid #2d3748",borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #2d3748",fontWeight:500,fontSize:14,color:"#90cdf4"}}>
+            🩺 Tutor {chatContext ? (chatContext.tipo==="flashcard" ? "— flashcard" : chatContext.enunciado ? "— questão" : "") : ""}
+          </div>
+          {chatContext && (chatContext.enunciado || chatContext.frente) && (
+            <div style={{borderBottom:"1px solid #2d3748"}}>
+              {chatContext.exameCrop && <img src={chatContext.exameCrop} onClick={() => setLightbox(chatContext.exameCrop)} style={{width:"100%",maxHeight:100,objectFit:"cover",display:"block",cursor:"zoom-in"}} alt="exame"/>}
+              <div style={{padding:"7px 14px",background:"#1c3a5f",fontSize:12,color:"#90cdf4",lineHeight:1.5}}>
+                {chatContext.area}{chatContext.tema?` · ${chatContext.tema}`:""}<br/>
+                <span style={{color:"#718096"}}>{(chatContext.tipo==="flashcard" ? stripHtml(chatContext.frente) : chatContext.enunciado||"").slice(0,70)}…</span>
+              </div>
+            </div>
+          )}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+            {chatMessages.length === 0 && <p style={{color:"#4a5568",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7,padding:"0 8px"}}>{chatContext?.enunciado ? "Questão carregada! Pergunte sobre alternativas, mecanismos, ou peça um flashcard." : chatContext?.frente ? "Flashcard carregado! Peça melhorias ou tire dúvidas." : "Pergunte sobre clínica, fármacos, fisiologia…"}</p>}
+            {chatMessages.map((m, i) => (
+              <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"88%"}}>
+                <div style={{background: m.role==="user"?"#2b6cb0":"#131720", border: m.role==="assistant"?"1px solid #2d3748":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#e2e8f0", whiteSpace:"pre-wrap"}}>
+                  {m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
+                </div>
+              </div>
+            ))}
+            {pendingFlashcard && (
+              <div style={{background:"#1c4532",border:"1px solid #38a169",borderRadius:12,padding:"10px 14px"}}>
+                <p style={{fontSize:12,color:"#9ae6b4",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 2px"}}><strong>Frente:</strong> {pendingFlashcard.frente}</p>
+                <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 10px"}}><strong>Verso:</strong> {pendingFlashcard.verso}</p>
+                <div style={{display:"flex",gap:8}}>
+                  <button style={{...S.btn("success"),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => {
+                    const fc = {id: Date.now()+1, tipo:"flashcard", area: form.area||chatContext?.area||"Outro", tema: form.tema||chatContext?.tema||"", frente: pendingFlashcard.frente, verso: pendingFlashcard.verso, frenteImg: null, versoImg: null, interval: 1, repetitions: 0, easeFactor: 2.5, nextReview: today(), createdAt: today(), updatedAt: nowIso()};
+                    setCards(prev => [...prev, fc]);
+                    setPendingFlashcard(null);
+                    showToast("Flashcard salvo!");
+                  }}>Salvar</button>
+                  <button style={{...S.btn(),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => setPendingFlashcard(null)}>Descartar</button>
+                </div>
+              </div>
+            )}
+            {chatLoading && <div style={{alignSelf:"flex-start",background:"#131720",border:"1px solid #2d3748",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#718096"}}>Pensando…</div>}
+            <div ref={chatEndRef}/>
+          </div>
+          <div style={{padding:"10px 12px",borderTop:"1px solid #1e2535",display:"flex",gap:8}}>
+            <input style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px"}} placeholder="Digite sua dúvida…" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key==="Enter" && !e.shiftKey && sendChat()}/>
+            <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0}} onClick={sendChat} disabled={chatLoading||!chatInput.trim()}>↑</button>
+          </div>
+        </div>
+      )}
+
+      <nav style={S.nav}>
+        {[["home","Início"],["add","+ Adicionar"],["list","Banco"],["review_start","Revisar"]].map(([v,l]) => (
+          <button key={v} style={S.navB(isActive(v))} onClick={() => setView(v)}>{l}</button>
+        ))}
+        <button
+          onClick={() => setConfigOpen(true)}
+          title={syncBadge(syncState, !!getGhToken() && !!getGistId()).title}
+          style={{marginLeft:"auto",background:"transparent",border:"none",color:"#4a5568",padding:"8px 10px",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:6}}
+        >
+          {syncBadge(syncState, !!getGhToken() && !!getGistId()).icon}
+          <span style={{fontSize:11,color:"#718096"}}>{syncBadge(syncState, !!getGhToken() && !!getGistId()).label}</span>
+        </button>
+        <button style={{...S.navB(false)}} onClick={() => setConfigOpen(true)} title="Configurações">⚙️</button>
+      </nav>
+
+      <div style={{padding:"16px 16px 0"}}>
+        {view === "home" && (
+          <div>
+            <p style={{fontSize:11,color:"#4a5568",marginBottom:16}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}</p>
+            {!getApiKey() && (
+              <div style={{...S.card,background:"#3d2a1a",border:"1px solid #744210",marginBottom:12}}>
+                <p style={{fontSize:13,color:"#fbd38d",margin:"0 0 6px",fontWeight:500}}>⚠️ Chave da API não configurada</p>
+                <p style={{fontSize:12,color:"#d4a574",margin:"0 0 8px",lineHeight:1.5}}>Funções de IA (extrair questão, gerar flashcard, tutor) precisam de uma chave da Anthropic.</p>
+                <button style={{...S.btn("warn"),padding:"6px 14px",fontSize:12}} onClick={() => setConfigOpen(true)}>Configurar agora</button>
+              </div>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+              {[["Total", cards.length, "blue"], ["Hoje", dueToday, "green"], ["Questões", cards.filter(c => c.tipo==="questao").length, "purple"], ["Flashcards", cards.filter(c => c.tipo==="flashcard").length, "blue"]].map(([l,v,c]) => (
+                <div key={l} style={{background:"#1a1f2e",border:"1px solid #1e2535",borderRadius:10,padding:"12px 14px"}}>
+                  <p style={{fontSize:11,color:"#718096",margin:"0 0 4px"}}>{l}</p>
+                  <p style={{fontSize:26,fontWeight:600,margin:0,color: c==="green"&&v>0?"#68d391":c==="purple"?"#d6bcfa":"#90cdf4"}}>{v}</p>
+                </div>
+              ))}
+            </div>
+            {dueToday > 0 ? (
+              <div style={S.card}>
+                <p style={{fontWeight:500,marginBottom:12,fontSize:14}}>Revisões pendentes</p>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {dueQ > 0 && <button style={S.btn("primary")} onClick={() => startReview("questao")}>Questões ({dueQ})</button>}
+                  {dueF > 0 && <button style={S.btn("success")} onClick={() => startReview("flashcard")}>Flashcards ({dueF})</button>}
+                  <button style={S.btn()} onClick={() => startReview("all")}>Tudo ({dueToday})</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{...S.card,textAlign:"center",padding:"32px 18px"}}>
+                <p style={{fontSize:20,marginBottom:4}}>✓</p>
+                <p style={{color:"#68d391",fontWeight:500,marginBottom:4}}>Em dia!</p>
+                <p style={{fontSize:13,color:"#718096"}}>Nenhuma revisão pendente hoje.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === "add" && (
+          <div>
+            <div style={{display:"flex",gap:8,marginBottom:16}}>
+              <button style={{...S.btn(addMode==="questao"?"primary":""),flex:1}} onClick={() => setAddMode("questao")}>Questão</button>
+              <button style={{...S.btn(addMode==="flashcard"?"success":""),flex:1}} onClick={() => setAddMode("flashcard")}>Flashcard manual</button>
+            </div>
+            <div style={S.card}>
+              <p style={{fontSize:13,fontWeight:500,marginBottom:10}}>📷 Imagens da questão</p>
+              <div style={{border:"1px dashed #2d3748",borderRadius:8,padding:14,textAlign:"center",marginBottom:10,cursor:"pointer"}} onClick={() => fileRef.current.click()}>
+                <p style={{color:"#4a5568",fontSize:13,margin:"0 0 2px"}}>Clique para adicionar imagens</p>
+                <p style={{color:"#2d3748",fontSize:12,margin:0}}>ou cole com Ctrl+V — pode adicionar várias</p>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleImgChange}/>
+              {imgPreviews.length > 0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+                  {imgPreviews.map((src, i) => (
+                    <div key={i} style={{position:"relative",display:"inline-block"}}>
+                      <img src={src} style={{height:80,borderRadius:6,border:"1px solid #2d3748",display:"block",cursor:"zoom-in"}} onClick={() => setLightbox(src)} alt={`img-${i}`}/>
+                      <button onClick={() => removeImgAt(i)} style={{position:"absolute",top:-6,right:-6,background:"#9b2c2c",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {imgFiles.length > 0 && <button style={{...S.btn("primary"),width:"100%",marginBottom:6}} onClick={extractWithAI} disabled={aiLoading}>{aiLoading ? `Extraindo…` : `✨ Extrair questão (${imgFiles.length} imagem${imgFiles.length>1?"ns":""})`}</button>}
+              {aiError && <p style={{color:"#fc8181",fontSize:12,margin:"4px 0"}}>{aiError}</p>}
+            </div>
+            <div style={S.card}>
+              {form.exameCrop && <ExamHeader src={form.exameCrop} onRemove={() => setForm(f => ({...f, exameCrop: null}))} onZoom={setLightbox}/>}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+                <div><label style={S.lbl}>Área</label><select style={S.inp} value={form.area} onChange={e => setForm(f => ({...f, area: e.target.value}))}>{AREAS.map(a => <option key={a}>{a}</option>)}</select></div>
+                <div><label style={S.lbl}>Tema</label><input style={S.inp} placeholder="ex: IAM, Dengue…" value={form.tema} onChange={e => setForm(f => ({...f, tema: e.target.value}))}/></div>
+              </div>
+              <label style={S.lbl}>{addMode === "flashcard" ? "Frente (pergunta)" : "Enunciado"}</label>
+              <textarea style={{...S.inp, minHeight:80, resize:"vertical", marginBottom:10}} placeholder={addMode === "flashcard" ? "Pergunta…" : "Enunciado da questão…"} value={form.enunciado} onChange={e => setForm(f => ({...f, enunciado: e.target.value}))}/>
+              {addMode === "questao" && (
+                <React.Fragment>
+                  <label style={S.lbl}>Alternativas</label>
+                  {["A","B","C","D","E"].map((l, i) => (
+                    <div key={l} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
+                      <span style={{...S.bdg(form.correta===l?"green":""), minWidth:24, textAlign:"center", flexShrink:0}}>{l}</span>
+                      <input style={S.inp} placeholder={`Alternativa ${l}`} value={form.alternativas[i]} onChange={e => { const a = [...form.alternativas]; a[i] = e.target.value; setForm(f => ({...f, alternativas: a})); }}/>
+                    </div>
+                  ))}
+                  <label style={{...S.lbl,marginTop:10}}>Resposta correta</label>
+                  <div style={{display:"flex",gap:6,marginBottom:12}}>
+                    {["A","B","C","D","E"].map(l => <button key={l} style={{...S.btn(form.correta===l?"success":""),padding:"7px 14px"}} onClick={() => setForm(f => ({...f, correta: l}))}>{l}</button>)}
+                  </div>
+                  <label style={{...S.lbl,marginBottom:6}}>Qual alternativa você marcou? <span style={{color:"#4a5568",fontWeight:400}}>(opcional)</span></label>
+                  <div style={{display:"flex",gap:6,marginBottom:12}}>
+                    {["A","B","C","D","E"].map(l => (
+                      <button key={l} style={{...S.btn(form.alternativaMarcada===l?"danger":""),padding:"7px 14px",opacity: form.correta===l ? 0.3 : 1}} onClick={() => setForm(f => ({...f, alternativaMarcada: f.alternativaMarcada===l?"":l}))} disabled={form.correta===l}>{l}</button>
+                    ))}
+                  </div>
+                </React.Fragment>
+              )}
+              <label style={S.lbl}>{addMode === "flashcard" ? "Verso (resposta)" : "Explicação"}</label>
+              <textarea style={{...S.inp, minHeight:70, resize:"vertical", marginBottom:14}} placeholder={addMode === "flashcard" ? "Resposta…" : "Explicação…"} value={form.explicacao} onChange={e => setForm(f => ({...f, explicacao: e.target.value}))}/>
+              {addMode === "questao" && <ComentarioSection form={form} setForm={setForm}/>}
+              {addMode === "flashcard" ? (
+                <button style={{...S.btn("success"),width:"100%",padding:11}} disabled={!form.enunciado} onClick={() => {
+                  const base = {id: Date.now(), area: form.area, tema: form.tema, interval: 1, repetitions: 0, easeFactor: 2.5, nextReview: today(), createdAt: today(), updatedAt: nowIso()};
+                  setCards(prev => [...prev, {...base, tipo:"flashcard", frente: form.enunciado, verso: form.explicacao, frenteImg: null, versoImg: null}]);
+                  setForm(emptyForm); showToast("Flashcard salvo!"); setView("home");
+                }}>Salvar flashcard</button>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <p style={{fontSize:12,color:"#718096",margin:"0 0 2px"}}>O que deseja salvar?</p>
+                  <button style={{...S.btn("primary"),padding:"11px"}} disabled={!form.enunciado||aiLoading} onClick={() => saveWithOption("ambos")}>{aiLoading ? "Gerando…" : "✨ Questão + Flashcard (recomendado)"}</button>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...S.btn("success"),flex:1,padding:"10px"}} disabled={!form.enunciado||aiLoading} onClick={() => saveWithOption("flashcard")}>Só flashcard</button>
+                    <button style={{...S.btn(),flex:1,padding:"10px"}} disabled={!form.enunciado} onClick={() => saveWithOption("questao")}>Só questão</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {view === "list" && (
+          <div>
+            <input type="text" placeholder="Buscar questões e flashcards…" value={bankSearch} onChange={e => { setBankSearch(e.target.value); setBankExpandedId(null); setBankPage(1); }} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #1e2535",background:"#131720",color:"#e2e8f0",fontSize:13,marginBottom:10,outline:"none",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+              {["Todas", ...AREAS].map(a => <button key={a} style={{...S.btn(bankFilter===a?"primary":""),whiteSpace:"nowrap",padding:"6px 12px",fontSize:12}} onClick={() => { setBankFilter(a); setBankPage(1); }}>{a}</button>)}
+            </div>
+            <div style={{display:"flex",gap:0,marginBottom:14,background:"#131720",borderRadius:10,padding:3}}>
+              {(() => {
+                const sq = bankSearch.toLowerCase().trim(); const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
+                const qLen = filtered.filter(c => c.tipo === "questao").length;
+                const fLen = filtered.filter(c => c.tipo === "flashcard").length;
+                return [["questoes", `Questões (${qLen})`], ["flashcards", `Flashcards (${fLen})`]].map(([v, l]) => (
+                  <button key={v} style={{flex:1,padding:"8px 0",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,background: bankTab===v?"#2b6cb0":"transparent",color: bankTab===v?"#e2e8f0":"#718096"}} onClick={() => {setBankTab(v); setBankExpandedId(null); setBankPage(1);}}>{l}</button>
+                ));
+              })()}
+            </div>
+            {(() => {
+              const sq = bankSearch.toLowerCase().trim(); const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
+              const list = filtered.filter(c => c.tipo === (bankTab === "questoes" ? "questao" : "flashcard")).sort((a,b) => b.id - a.id);
+              if (list.length === 0) return <p style={{color:"#4a5568",fontSize:13,textAlign:"center",marginTop:40}}>Nenhum item ainda.</p>;
+              const visible = list.slice(0, bankPage * BANK_PAGE_SIZE);
+              if (bankTab === "questoes") return visible.map(c => {
+                const exp = bankExpandedId === c.id;
+                return (
+                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding: c.exameCrop?"0":"16px 18px",cursor:"pointer",overflow:"hidden",outline:bankHighlightId===c.id?"2px solid #63b3ed":"none",boxShadow:bankHighlightId===c.id?"0 0 0 6px rgba(99,179,237,0.2)":"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                    {c.exameCrop && <ExamHeader src={c.exameCrop} onZoom={setLightbox}/>}
+                    <div style={{padding: c.exameCrop?"10px 14px 14px":"0"}}>
+                      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                        <span style={S.bdg("blue")}>{c.area}</span>
+                        {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
+                        {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
+                      </div>
+                      <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#e2e8f0"}}>{c.enunciado}</p>
+                      {c.enunciadoImgs?.length > 0 && !exp && (
+                        <span style={{fontSize:11,color:"#718096",display:"block",marginBottom:4}}>🖼️ {c.enunciadoImgs.length} imagem{c.enunciadoImgs.length>1?"ns":""}</span>
+                      )}
+                      {c.enunciadoImgs?.length > 0 && exp && (
+                        <div style={{display:"flex",flexWrap:"wrap",gap:8,margin:"8px 0 4px"}}>
+                          {c.enunciadoImgs.map((src,i) => (
+                            <img key={i} src={src} onClick={e => {e.stopPropagation(); setLightbox(src);}}
+                              style={{maxWidth:"100%",maxHeight:220,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#131720",display:"block"}} alt={`img-${i}`}/>
+                          ))}
+                        </div>
+                      )}
+                      {exp && (
+                        <div style={{marginTop:10}} onClick={e => e.stopPropagation()}>
+                          {c.alternativas?.map((alt, i) => {
+                            const l = ["A","B","C","D","E"][i];
+                            const isC = l === c.correta;
+                            const isM = l === c.alternativaMarcada;
+                            return <div key={l} style={{padding:"7px 11px",marginBottom:5,borderRadius:8,background: isC?"#1c4532":isM?"#3d1a1a":"#131720",border:`1px solid ${isC?"#38a169":isM?"#9b2c2c":"#1e2535"}`,fontSize:13,color: isC?"#9ae6b4":isM?"#fc8181":"#a0aec0"}}>{alt}{isM && !isC ? " ← você marcou" : ""}</div>;
+                          })}
+                          {c.explicacao && <p style={{fontSize:12,color:"#a0aec0",marginTop:10,lineHeight:1.6,borderTop:"1px solid #1e2535",paddingTop:8}}>{c.explicacao}</p>}
+                        </div>
+                      )}
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
+                        <span style={{fontSize:11,color:"#4a5568"}}>Revisão: {c.nextReview} · {c.interval}d</span>
+                        <div style={{display:"flex",gap:6}}>
+                          <button style={{...S.btn("success"),padding:"4px 10px",fontSize:11}} onClick={() => generateFlashcardAI(c)} disabled={aiLoading}>✨</button>
+                          <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={() => openTutorWithContext({...c})}>💬</button>{(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return lk ? <button title="Ir para o flashcard" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("flashcards"); setBankExpandedId(lk.id); setBankHighlightId(lk.id); setTimeout(()=>{const el=document.getElementById("card-"+lk.id);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>⚡ Card</button> : <span title="Nenhum flashcard vinculado"   style={{fontSize:10,color:"#4a5568",padding:"3px 6px",borderRadius:6,background:"#131720",border:"1px solid #1e2535"}}>sem card</span>; })()}<button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={() => deleteCard(c.id)}>✕</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              });
+              return visible.map(c => {
+                const exp = bankExpandedId === c.id;
+                const pF = stripHtml(c.frente);
+                const pV = stripHtml(c.verso);
+                return (
+                  <div id={"card-"+c.id} key={c.id} style={{...S.card,cursor:"pointer",outline:bankHighlightId===c.id?"2px solid #63b3ed":"none",boxShadow:bankHighlightId===c.id?"0 0 0 6px rgba(99,179,237,0.2)":"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                    <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                      <span style={S.bdg("blue")}>{c.area}</span>
+                      {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
+                      {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
+                      {c.enviadoMedcof && <span style={{...S.bdg("green"),background:"#0b3b2a",color:"#9ae6b4"}}>✓ MedCof {new Date(c.enviadoMedcof).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>}
+                    </div>
+                    <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
+                      <div style={{fontSize:13,fontWeight:500,color:"#e2e8f0",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: c.frente}}/>
+                      <button title="Copiar frente" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pF, c.frente);}}>📋</button>
+                    </div>
+                    {c.frenteImg && <img src={c.frenteImg} onClick={() => setLightbox(c.frenteImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:6,cursor:"zoom-in"}} alt="frente"/>}
+                    {exp && (
+                      <div style={{marginTop:8,borderTop:"1px solid #1e2535",paddingTop:10}} onClick={e => e.stopPropagation()}>
+                        <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
+                          <div style={{fontSize:13,color:"#9ae6b4",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: c.verso}}/>
+                          <button title="Copiar verso" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pV, c.verso);}}>📋</button>
+                        </div>
+                        {c.versoImg && <img src={c.versoImg} onClick={() => setLightbox(c.versoImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,cursor:"zoom-in"}} alt="verso"/>}
+                      </div>
+                    )}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
+                      <span style={{fontSize:11,color:"#4a5568"}}>{exp?"▲ ocultar":"▼ ver verso"} · {c.nextReview} · {c.interval}d</span>
+                      <div style={{display:"flex",gap:6}}>
+                        <button title={c.enviadoMedcof?"Reenviar ao MedCof":"Enviar ao MedCof (baralho de erros)"} style={{...S.btn("primary"),padding:"4px 10px",fontSize:11,opacity: sendingToMedcof===c.id?0.5:1}} disabled={sendingToMedcof===c.id} onClick={e => {e.stopPropagation(); enviarParaMedcof(c);}}>{sendingToMedcof===c.id?"⏳":"📤"}</button>
+                        <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>{(() => { const orig = c.origemId ? cards.find(x => x.id===c.origemId) : null; return orig ? <button title="Ir para a questao" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝 Q</button> : <span title="Nenhuma questao vinculada"   style={{fontSize:10,color:"#4a5568",padding:"3px 6px",borderRadius:6,background:"#131720",border:"1px solid #1e2535"}}>sem questao</span>; })()}<button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
+                        <button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); deleteCard(c.id);}}>✕</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+            {(() => {
+              const sq = bankSearch.toLowerCase().trim();
+              const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
+              const total = filtered.filter(c => c.tipo === (bankTab === "questoes" ? "questao" : "flashcard")).length;
+              return total > bankPage * BANK_PAGE_SIZE ? <button onClick={() => setBankPage(p => p+1)} style={{...S.btn(),width:"100%",padding:"11px",marginTop:8,fontSize:13}}>Ver mais ({total - bankPage * BANK_PAGE_SIZE} restantes)</button> : null;
+            })()}
+          </div>
+        )}
+
+        {view === "review_start" && (
+          <div>
+            <div style={{...S.card,textAlign:"center",padding:"32px 18px",marginBottom:12}}>
+              <p style={{fontSize:36,fontWeight:700,color:"#63b3ed",marginBottom:4}}>{dueToday}</p>
+              <p style={{color:"#718096",fontSize:14}}>itens para revisar hoje</p>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {dueQ > 0 && <button style={{...S.btn("primary"),padding:14}} onClick={() => startReview("questao")}>Revisar Questões ({dueQ})</button>}
+              {dueF > 0 && <button style={{...S.btn("success"),padding:14}} onClick={() => startReview("flashcard")}>Revisar Flashcards ({dueF})</button>}
+              {dueToday > 0 && <button style={{...S.btn(),padding:14}} onClick={() => startReview("all")}>Revisar Tudo ({dueToday})</button>}
+              {dueToday === 0 && <p style={{textAlign:"center",color:"#68d391",padding:"32px 0"}}>Nenhuma revisão pendente hoje!</p>}
+            </div>
+          </div>
+        )}
+
+        {view === "review" && currentCard && (
+          <div>
+            <p style={{fontSize:12,color:"#4a5568",marginBottom:12}}>{reviewIdx+1} / {reviewQueue.length} · {currentCard.area}{currentCard.tema?` · ${currentCard.tema}`:""}</p>
+            <div style={{...S.card,padding: currentCard.exameCrop?"0":"16px 18px",overflow:"hidden"}}>
+              {currentCard.tipo === "questao" ? (
+                <React.Fragment>
+                  {currentCard.exameCrop && <ExamHeader src={currentCard.exameCrop} onZoom={setLightbox}/>}
+                  <div style={{padding: currentCard.exameCrop?"12px 16px 16px":"0"}}>
+                    <p style={{fontSize:14,lineHeight:1.7,marginBottom: currentCard.enunciadoImgs?.length?8:16}}>{currentCard.enunciado}</p>
+                    {currentCard.enunciadoImgs?.length > 0 && (
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
+                        {currentCard.enunciadoImgs.map((src,i) => (
+                          <img key={i} src={src} onClick={() => setLightbox(src)}
+                            style={{maxWidth:"100%",maxHeight:260,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#131720",display:"block"}} alt={`img-${i}`}/>
+                        ))}
+                      </div>
+                    )}
+                    {currentCard.alternativas?.map((alt, i) => {
+                      const l = ["A","B","C","D","E"][i];
+                      const isC = l === currentCard.correta;
+                      return <div key={l} style={{padding:"8px 12px",marginBottom:6,borderRadius:8,background: showAnswer && isC?"#1c4532":"#131720",border:`1px solid ${showAnswer && isC?"#38a169":"#1e2535"}`,fontSize:13,color: showAnswer && isC?"#9ae6b4":"#a0aec0"}}>{alt}</div>;
+                    })}
+                    {showAnswer && currentCard.explicacao && <p style={{fontSize:13,color:"#a0aec0",marginTop:12,lineHeight:1.6,borderTop:"1px solid #1e2535",paddingTop:10}}>{currentCard.explicacao}</p>}
+                  </div>
+                </React.Fragment>
+              ) : (
+                <div style={{padding:"16px 18px"}}>
+                  <div style={{fontSize:15,lineHeight:1.7,marginBottom:8,fontWeight:500}} dangerouslySetInnerHTML={{__html: currentCard.frente}}/>
+                  {currentCard.frenteImg && <img src={currentCard.frenteImg} onClick={() => setLightbox(currentCard.frenteImg)} style={{maxWidth:"100%",borderRadius:8,marginBottom:12,cursor:"zoom-in"}} alt="frente"/>}
+                  {showAnswer && (
+                    <div style={{borderTop:"1px solid #1e2535",paddingTop:12}}>
+                      <div style={{fontSize:14,lineHeight:1.7,color:"#9ae6b4",marginBottom:8}} dangerouslySetInnerHTML={{__html: currentCard.verso}}/>
+                      {currentCard.versoImg && <img src={currentCard.versoImg} onClick={() => setLightbox(currentCard.versoImg)} style={{maxWidth:"100%",borderRadius:8,cursor:"zoom-in"}} alt="verso"/>}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            {!showAnswer ? (
+              <button style={{...S.btn("primary"),width:"100%",padding:13}} onClick={() => setShowAnswer(true)}>Ver resposta</button>
+            ) : (
+              <div>
+                <p style={{fontSize:12,color:"#718096",marginBottom:8,textAlign:"center"}}>Como foi?</p>
+                <div style={{display:"flex",gap:8}}>
+                  <button style={{...S.btn("danger"),flex:1,padding:13}} onClick={() => gradeCard(0)}>Errei</button>
+                  <button style={{...S.btn("warn"),flex:1,padding:13}} onClick={() => gradeCard(2)}>Difícil</button>
+                  <button style={{...S.btn("success"),flex:1,padding:13}} onClick={() => gradeCard(4)}>Fácil</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view === "reviewDone" && (
+          <div style={{...S.card,textAlign:"center",padding:"48px 18px"}}>
+            <p style={{fontSize:32,marginBottom:8}}>🎉</p>
+            <p style={{fontSize:18,fontWeight:500,color:"#68d391",marginBottom:8}}>Sessão concluída!</p>
+            <p style={{fontSize:13,color:"#718096",marginBottom:24}}>{reviewQueue.length} itens revisados</p>
+            <button style={S.btn("primary")} onClick={() => setView("home")}>Voltar ao início</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
