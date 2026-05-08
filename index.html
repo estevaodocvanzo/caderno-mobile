@@ -36,6 +36,12 @@
   .cozy-stagger > *:nth-child(5) { animation-delay: 0.25s; }
   .cozy-stagger > *:nth-child(6) { animation-delay: 0.30s; }
   .cozy-bar { transform-origin: bottom; animation: cozyBarGrow 0.5s ease-out both; }
+  /* Hover sutil em itens clicáveis do banco/listas */
+  .cozy-row { transition: background 0.15s ease, transform 0.15s ease; }
+  .cozy-row:hover { background: #36493f !important; }
+  /* Botões com transição leve */
+  button { transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease; }
+  button:active { transform: scale(0.97); }
 </style>
 </head>
 <body>
@@ -2270,7 +2276,11 @@ Retorne SOMENTE um JSON (sem markdown):
             onTouchStart={e => { if (!isMobileFullScreen && e.target.tagName !== "BUTTON" && e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
             style={{padding:"12px 12px 12px 16px",borderBottom:tutorMin && !isMobileFullScreen?"none":`1px solid ${COZY.line}`,fontWeight:500,fontSize:14,color:COZY.sky,display:"flex",alignItems:"center",gap:6,cursor:isMobileFullScreen?"default":"move",userSelect:"none"}}
           >
-            <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🩺 Tutor{chatContext ? (chatContext.tipo==="flashcard" ? " — flashcard" : chatContext.enunciado ? " — questão" : "") : ""}</span>
+            <BrandMark size={isMobileFullScreen?28:22} accent={COZY.peach} ink={COZY.bg}/>
+            <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",lineHeight:1.1}}>
+              <span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:isMobileFullScreen?18:15,color:COZY.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>tutor{chatContext ? (chatContext.tipo==="flashcard" ? " — flashcard" : chatContext.enunciado ? " — questão" : "") : ""}</span>
+              <span style={{fontSize:9,color:COZY.peach,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:600,marginTop:2}}>○ haiku 4.5</span>
+            </div>
             {chatMessages.length > 0 && !tutorMin && (
               <button title="Nova conversa" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:10,padding:"2px 7px",borderRadius:5,cursor:"pointer"}}>nova</button>
             )}
@@ -2669,8 +2679,36 @@ Retorne SOMENTE um JSON (sem markdown):
         )}
 
         {view === "list" && (
-          <div>
-            <input type="text" placeholder="Buscar questões e flashcards…" value={bankSearch} onChange={e => { setBankSearch(e.target.value); setBankExpandedId(null); setBankPage(1); }} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #324239",background:"#243530",color:"#f0e6d2",fontSize:13,marginBottom:10,outline:"none",boxSizing:"border-box"}}/>
+          <div
+            onTouchStart={e => { if (!isMobile) return; e.currentTarget._sx = e.touches[0].clientX; e.currentTarget._sy = e.touches[0].clientY; }}
+            onTouchEnd={e => {
+              if (!isMobile) return;
+              const sx = e.currentTarget._sx, sy = e.currentTarget._sy;
+              if (sx == null) return;
+              const ex = e.changedTouches[0].clientX, ey = e.changedTouches[0].clientY;
+              const dx = ex - sx, dy = ey - sy;
+              if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+                if (dx < 0 && bankTab === "questoes") { setBankTab("flashcards"); setBankExpandedId(null); setBankPage(1); }
+                else if (dx > 0 && bankTab === "flashcards") { setBankTab("questoes"); setBankExpandedId(null); setBankPage(1); }
+              }
+            }}
+          >
+            {/* Hero do Banco */}
+            <div style={{margin:"-16px -16px 14px",padding:"22px 22px 14px",position:"relative",overflow:"hidden",background:`radial-gradient(ellipse 280px 200px at 100% 0%, ${COZY.peachSoft} 0%, transparent 70%), ${COZY.bg}`}}>
+              <div style={{position:"absolute",right:6,top:6,opacity:0.5,pointerEvents:"none"}}>
+                <BrandMark size={68} accent={COZY.peach} ink={COZY.bg}/>
+              </div>
+              <div style={{position:"relative"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                  <div style={{width:18,height:1,background:COZY.peach}}/>
+                  <span style={{fontSize:10,color:COZY.peach,letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:700}}>banco</span>
+                </div>
+                <h1 style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:26,lineHeight:1.1,margin:0,letterSpacing:"-0.02em",color:COZY.text}}>
+                  Suas <em style={{color:COZY.peach,fontWeight:500}}>{cards.length}</em> fichas.
+                </h1>
+              </div>
+            </div>
+            <input type="text" placeholder="Buscar enunciado, tema, fármaco…" value={bankSearch} onChange={e => { setBankSearch(e.target.value); setBankExpandedId(null); setBankPage(1); }} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:`1px solid ${COZY.line}`,background:COZY.bg2,color:COZY.text,fontSize:13,marginBottom:10,outline:"none",boxSizing:"border-box",fontFamily:COZY.font}}/>
             <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
               {["Todas", ...AREAS].map(a => <button key={a} style={{...S.btn(bankFilter===a?"primary":""),whiteSpace:"nowrap",padding:"6px 12px",fontSize:12}} onClick={() => { setBankFilter(a); setBankPage(1); }}>{a}</button>)}
             </div>
@@ -2694,7 +2732,7 @@ Retorne SOMENTE um JSON (sem markdown):
                 const tint = areaTint(c.area);
                 const matCor = maturityColor(c.interval);
                 return (
-                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding:0,cursor:"pointer",overflow:"hidden",borderLeft:`3px solid ${tint}`,outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                  <div id={"card-"+c.id} key={c.id} className="cozy-row" style={{...S.card,padding:0,cursor:"pointer",overflow:"hidden",borderLeft:`3px solid ${tint}`,outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
                     {c.exameCrop && <ExamHeader src={c.exameCrop} onZoom={setLightbox}/>}
                     <div style={{display:"flex",gap:12,padding: c.exameCrop?"12px 16px 14px":"14px 16px"}}>
                       {/* Numeração lateral */}
