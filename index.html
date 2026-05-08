@@ -1114,6 +1114,10 @@ function App() {
   const [aiError, setAiError] = useState("");
   const [toast, setToast] = useState("");
   const [editingCard, setEditingCard] = useState(null);
+  const [moreAnglesCard, setMoreAnglesCard] = useState(null);   // card "fonte" para gerar mais ângulos
+  const [moreAnglesList, setMoreAnglesList] = useState([]);     // [{tipo, frente, verso, tema}]
+  const [moreAnglesLoading, setMoreAnglesLoading] = useState(false);
+  const [moreAnglesAdded, setMoreAnglesAdded] = useState(new Set());
   const [chatOpen, setChatOpen] = useState(false);
   const [chatContext, setChatContext] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
@@ -1454,6 +1458,89 @@ function App() {
     setTimeout(() => setSendingToMedcof(prev => prev === card.id ? null : prev), 90000);
   }
 
+  // Gera 3-4 cards complementares (tipos diferentes) a partir de um card existente
+  async function gerarMaisAngulos(card) {
+    if (!getApiKey()) { alert("Configure a chave da Anthropic primeiro."); setConfigOpen(true); return; }
+    setMoreAnglesCard(card);
+    setMoreAnglesList([]);
+    setMoreAnglesAdded(new Set());
+    setMoreAnglesLoading(true);
+    const questao = card.origemId ? cards.find(c => c.id === card.origemId) : null;
+    const ctxQuestao = questao ? `QUESTÃO ORIGINAL:\n${questao.enunciado}\n\nALTERNATIVAS:\n${(questao.alternativas||[]).join("\n")}\nCorreta: ${questao.correta || "?"}\nMarcada pelo aluno: ${questao.alternativaMarcada || "?"}\n` : "";
+    const stripHtmlLocal = (s) => (s || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    const prompt = `Você é mentor sênior de aprovação em residência médica em bancas brasileiras de alta competitividade.
+
+Já existe ESTE flashcard no caderno do aluno:
+FRENTE: ${stripHtmlLocal(card.frente)}
+VERSO: ${stripHtmlLocal(card.verso)}
+${card.area ? "Área: " + card.area : ""}${card.tema ? " · Tema: " + card.tema : ""}
+
+${ctxQuestao}
+
+Sua missão: gerar 3 a 4 flashcards COMPLEMENTARES, atacando ÂNGULOS DIFERENTES desse mesmo conceito clínico. Cada card é atômico (testa UMA ideia, recall < 10s) e usa um TIPO diferente entre:
+
+  1. GATILHO → ENTIDADE (sinal patognomônico → diagnóstico)
+  2. VINHETA CONDENSADA → DIAGNÓSTICO
+  3. DIAGNÓSTICO → CONDUTA (próximo passo)
+  4. DIFERENCIAL X vs Y (qual achado distingue)
+  5. ARMADILHA / VALOR DE CORTE / MECANISMO
+
+REGRAS:
+- Cada card de TIPO DIFERENTE — não repete o tipo do card existente.
+- Frente CURTA, sem vinheta inteira. **Negrito** no termo crítico.
+- Verso direto (1-4 linhas), termo técnico preciso, **negrito** no termo-chave.
+- NÃO repita exatamente a mesma frente/verso do card existente.
+
+Retorne SOMENTE um JSON array (sem markdown):
+[
+  { "tipo": "1", "tipoNome": "Gatilho", "frente": "...", "verso": "..." },
+  { "tipo": "3", "tipoNome": "Conduta", "frente": "...", "verso": "..." },
+  ...
+]`;
+    try {
+      const resp = await callAnthropic({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 2000,
+        messages: [{ role: "user", content: prompt }]
+      });
+      const txt = (resp.content || []).map(i => i.text || "").join("");
+      const m = txt.match(/\[[\s\S]*\]/);
+      const arr = JSON.parse((m ? m[0] : txt).replace(/```json|```/g, "").trim());
+      if (!Array.isArray(arr)) throw new Error("Resposta não é array");
+      setMoreAnglesList(arr.filter(c => c.frente && c.verso));
+    } catch (e) {
+      alert("Erro ao gerar mais ângulos: " + e.message);
+      setMoreAnglesCard(null);
+    } finally {
+      setMoreAnglesLoading(false);
+    }
+  }
+
+  function adicionarAngulo(idx, suggestion) {
+    const base = moreAnglesCard;
+    if (!base) return;
+    const id = Date.now() + idx + 1;
+    const novo = {
+      id,
+      tipo: "flashcard",
+      frente: suggestion.frente,
+      verso: suggestion.verso,
+      area: base.area || "Outro",
+      tema: base.tema || "",
+      origemId: base.origemId || null,  // herda link com a questão
+      tipoCard: String(suggestion.tipo || ""),
+      interval: 1,
+      repetitions: 0,
+      easeFactor: 2.5,
+      nextReview: today(),
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    setCards(prev => [...prev, novo]);
+    setMoreAnglesAdded(prev => new Set([...prev, idx]));
+    showToast("✦ ângulo adicionado");
+  }
+
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
 
   function copyText(txt, html) {
@@ -1734,6 +1821,49 @@ function App() {
         </div>
       )}
       {editingCard && <FlashcardEditModal card={editingCard} onClose={() => setEditingCard(null)} onSave={fields => saveEditedCard(editingCard.id, fields)}/>}
+      {moreAnglesCard && (
+        <div onClick={() => !moreAnglesLoading && setMoreAnglesCard(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:993,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div onClick={e => e.stopPropagation()} style={{background:COZY.bg2,border:`1px solid ${COZY.line}`,borderRadius:14,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto",padding:20,boxShadow:"0 20px 60px rgba(0,0,0,0.5)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{color:COZY.peach,fontSize:18}}>✦</span>
+                <span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:18,color:COZY.text}}>mais ângulos</span>
+              </div>
+              <button onClick={() => setMoreAnglesCard(null)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:18,cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{background:COZY.surface,border:`1px solid ${COZY.lineSoft}`,borderRadius:8,padding:"10px 12px",marginBottom:14,fontSize:12,color:COZY.textSoft}}>
+              <div style={{fontSize:9,color:COZY.textMute,letterSpacing:"0.12em",textTransform:"uppercase",marginBottom:4,fontWeight:600}}>card existente</div>
+              <div dangerouslySetInnerHTML={{__html: stripHtml(moreAnglesCard.frente).slice(0, 120) + (stripHtml(moreAnglesCard.frente).length > 120 ? "…" : "")}}/>
+            </div>
+            {moreAnglesLoading ? (
+              <div style={{textAlign:"center",padding:"30px 0",color:COZY.textMute,fontFamily:COZY.fontDisplay,fontStyle:"italic"}}>gerando ângulos diferentes…</div>
+            ) : moreAnglesList.length === 0 ? (
+              <div style={{textAlign:"center",padding:"30px 0",color:COZY.textMute,fontSize:13}}>nenhum ângulo gerado.</div>
+            ) : (
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {moreAnglesList.map((s, i) => {
+                  const tipoNomes = {"1":"gatilho","2":"vinheta","3":"conduta","4":"diferencial","5":"armadilha"};
+                  const tipoCor = {"1":COZY.sky,"2":COZY.peach,"3":COZY.sage,"4":COZY.butter,"5":COZY.rose}[String(s.tipo)] || COZY.peach;
+                  const added = moreAnglesAdded.has(i);
+                  return (
+                    <div key={i} style={{background:COZY.surface,border:`1px solid ${COZY.line}`,borderLeft:`3px solid ${tipoCor}`,borderRadius:8,padding:"12px 14px"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+                        <span style={{fontSize:9,color:tipoCor,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700}}>{s.tipoNome || tipoNomes[String(s.tipo)] || "ângulo"}</span>
+                      </div>
+                      <div style={{fontFamily:COZY.fontDisplay,fontSize:14,lineHeight:1.4,color:COZY.text,marginBottom:6}} dangerouslySetInnerHTML={{__html: s.frente}}/>
+                      <div style={{fontSize:12,lineHeight:1.55,color:COZY.textSoft,marginBottom:10,paddingLeft:10,borderLeft:`2px solid ${COZY.lineSoft}`}} dangerouslySetInnerHTML={{__html: s.verso}}/>
+                      <button onClick={() => adicionarAngulo(i, s)} disabled={added} style={{...S.btn(added ? "" : "primary"),width:"100%",fontSize:12,padding:"8px"}}>
+                        {added ? "✓ adicionado" : "+ adicionar ao caderno"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <button onClick={() => setMoreAnglesCard(null)} style={{...S.btn(),width:"100%",marginTop:14,fontSize:12}}>fechar</button>
+          </div>
+        </div>
+      )}
       {configOpen && <ConfigModal onClose={() => setConfigOpen(false)} cards={cards} setCards={setCards} showToast={showToast} deletedIds={deletedIds} setDeletedIds={setDeletedIds} syncState={syncState} setSyncState={setSyncState}/>}
 
       {!isMobile && (
@@ -2125,7 +2255,7 @@ function App() {
                       <span style={{fontSize:11,color:"#5e6f66"}}>{exp?"▲ ocultar":"▼ ver verso"} · {c.nextReview} · {c.interval}d</span>
                       <div style={{display:"flex",gap:6}}>
                         <button title={c.enviadoMedcof?"Reenviar ao MedCof":"Enviar ao MedCof (baralho de erros)"} style={{...S.btn("primary"),padding:"4px 10px",fontSize:11,opacity: sendingToMedcof===c.id?0.5:1}} disabled={sendingToMedcof===c.id} onClick={e => {e.stopPropagation(); enviarParaMedcof(c);}}>{sendingToMedcof===c.id?"⏳":"📤"}</button>
-                        <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>{(() => { const orig = c.origemId ? cards.find(x => x.id===c.origemId) : null; return orig ? <button title="Ir para a questao" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝 Q</button> : <span title="Nenhuma questao vinculada"   style={{fontSize:10,color:"#5e6f66",padding:"3px 6px",borderRadius:6,background:"#243530",border:"1px solid #324239"}}>sem questao</span>; })()}<button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
+                        <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>{(() => { const orig = c.origemId ? cards.find(x => x.id===c.origemId) : null; return orig ? <button title="Ir para a questao" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝 Q</button> : <span title="Nenhuma questao vinculada"   style={{fontSize:10,color:"#5e6f66",padding:"3px 6px",borderRadius:6,background:"#243530",border:"1px solid #324239"}}>sem questao</span>; })()}<button title="Gerar mais ângulos" style={{...S.btn(),padding:"4px 10px",fontSize:11,color:COZY.peach}} onClick={e => {e.stopPropagation(); gerarMaisAngulos(c);}}>✦</button><button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
                         <button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); deleteCard(c.id);}}>✕</button>
                       </div>
                     </div>
