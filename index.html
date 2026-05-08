@@ -620,6 +620,21 @@ function exportBackup(cards) {
 
 const stripHtml = s => (s||"").replace(/<[^>]+>/g,"");
 
+// Renderiza frente/verso de cards: respeita HTML existente (cards antigos) e converte markdown.
+function renderCardText(s) {
+  if (!s) return "";
+  const hasHtml = /<\w+[^>]*>/.test(s);
+  let out = hasHtml
+    ? s  // já tem tags HTML, não escapa pra preservar
+    : s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  out = out
+    .replace(/\*\*([^*\n][^*]*?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>")
+    .replace(/`([^`\n]+)`/g, '<code style="background:#1d2a26;padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace;font-size:0.9em;">$1</code>');
+  if (!hasHtml) out = out.replace(/\n/g, "<br>");
+  return out;
+}
+
 // Renderer de Markdown leve para mensagens do tutor.
 // Suporta: **bold**, *italic*, `code`, headers #/##/###, listas (- *) e numeradas, tabelas | a | b |, links, quebras.
 function renderMd(text) {
@@ -2120,8 +2135,8 @@ Retorne SOMENTE um JSON (sem markdown):
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
                         <span style={{fontSize:9,color:tipoCor,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700}}>{s.tipoNome || tipoNomes[String(s.tipo)] || "ângulo"}</span>
                       </div>
-                      <div style={{fontFamily:COZY.fontDisplay,fontSize:14,lineHeight:1.4,color:COZY.text,marginBottom:6}} dangerouslySetInnerHTML={{__html: s.frente}}/>
-                      <div style={{fontSize:12,lineHeight:1.55,color:COZY.textSoft,marginBottom:10,paddingLeft:10,borderLeft:`2px solid ${COZY.lineSoft}`}} dangerouslySetInnerHTML={{__html: s.verso}}/>
+                      <div style={{fontFamily:COZY.fontDisplay,fontSize:14,lineHeight:1.4,color:COZY.text,marginBottom:6}} dangerouslySetInnerHTML={{__html: renderCardText(s.frente)}}/>
+                      <div style={{fontSize:12,lineHeight:1.55,color:COZY.textSoft,marginBottom:10,paddingLeft:10,borderLeft:`2px solid ${COZY.lineSoft}`}} dangerouslySetInnerHTML={{__html: renderCardText(s.verso)}}/>
                       <button onClick={() => adicionarAngulo(i, s)} disabled={added} style={{...S.btn(added ? "" : "primary"),width:"100%",fontSize:12,padding:"8px"}}>
                         {added ? "✓ adicionado" : "+ adicionar ao caderno"}
                       </button>
@@ -2466,7 +2481,7 @@ Retorne SOMENTE um JSON (sem markdown):
                     <div style={{width:3,alignSelf:"stretch",background:areaTint(c.area),borderRadius:1}}/>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:10,color:areaTint(c.area),letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:600,marginBottom:3}}>{c.area || "—"}</div>
-                      <div style={{fontFamily:COZY.fontDisplay,fontSize:13,color:COZY.textSoft,lineHeight:1.4,fontStyle:"italic",overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:1,WebkitBoxOrient:"vertical"}} dangerouslySetInnerHTML={{__html: (c.frente||c.enunciado||"").slice(0, 200)}}/>
+                      <div style={{fontFamily:COZY.fontDisplay,fontSize:13,color:COZY.textSoft,lineHeight:1.4,fontStyle:"italic",overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:1,WebkitBoxOrient:"vertical"}} dangerouslySetInnerHTML={{__html: renderCardText((c.frente||c.enunciado||"").slice(0, 200))}}/>
                     </div>
                     <span style={{fontFamily:COZY.fontMono,fontSize:10,color:COZY.textFaint,alignSelf:"center"}}>{c.repetitions||0}↻</span>
                   </div>
@@ -2671,14 +2686,14 @@ Retorne SOMENTE um JSON (sem markdown):
                       {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
                     </div>
                     <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
-                      <div style={{fontSize:13,fontWeight:500,color:"#f0e6d2",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: c.frente}}/>
+                      <div style={{fontSize:13,fontWeight:500,color:"#f0e6d2",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.frente)}}/>
                       <button title="Copiar frente" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pF, c.frente);}}>📋</button>
                     </div>
                     {c.frenteImg && <img src={c.frenteImg} onClick={() => setLightbox(c.frenteImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:6,cursor:"zoom-in"}} alt="frente"/>}
                     {exp && (
                       <div style={{marginTop:8,borderTop:"1px solid #324239",paddingTop:10}} onClick={e => e.stopPropagation()}>
                         <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
-                          <div style={{fontSize:13,color:"#a8c4a2",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: c.verso}}/>
+                          <div style={{fontSize:13,color:"#a8c4a2",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.verso)}}/>
                           <button title="Copiar verso" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pV, c.verso);}}>📋</button>
                         </div>
                         {c.versoImg && <img src={c.versoImg} onClick={() => setLightbox(c.versoImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,cursor:"zoom-in"}} alt="verso"/>}
@@ -2785,13 +2800,13 @@ Retorne SOMENTE um JSON (sem markdown):
                 ) : (
                   <React.Fragment>
                     <div style={{fontSize:9,color:COZY.textFaint,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:14,fontWeight:600}}>frente</div>
-                    <div style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:18,lineHeight:1.45,color:COZY.text,textAlign:"center"}} dangerouslySetInnerHTML={{__html: currentCard.frente}}/>
+                    <div style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:18,lineHeight:1.45,color:COZY.text,textAlign:"center"}} dangerouslySetInnerHTML={{__html: renderCardText(currentCard.frente)}}/>
                     {currentCard.frenteImg && <img src={currentCard.frenteImg} onClick={() => setLightbox(currentCard.frenteImg)} style={{maxWidth:"100%",borderRadius:8,margin:"14px auto 0",display:"block",cursor:"zoom-in"}} alt="frente"/>}
                     {showAnswer && (
                       <React.Fragment>
                         <div style={{margin:"22px auto 14px",width:32,height:1,background:COZY.peach}}/>
                         <div style={{fontSize:9,color:COZY.peach,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:12,fontWeight:600}}>verso</div>
-                        <div style={{fontSize:13,lineHeight:1.7,color:COZY.textSoft,textAlign:"left"}} dangerouslySetInnerHTML={{__html: currentCard.verso}}/>
+                        <div style={{fontSize:13,lineHeight:1.7,color:COZY.textSoft,textAlign:"left"}} dangerouslySetInnerHTML={{__html: renderCardText(currentCard.verso)}}/>
                         {currentCard.versoImg && <img src={currentCard.versoImg} onClick={() => setLightbox(currentCard.versoImg)} style={{maxWidth:"100%",borderRadius:8,marginTop:12,cursor:"zoom-in"}} alt="verso"/>}
                       </React.Fragment>
                     )}
