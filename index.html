@@ -193,9 +193,47 @@ window.addEventListener("message", (ev) => {
     resolve(msg);
   }
 });
+// Em file:// usa a extensão como bridge (evita CORS).
+// Em https:// (GitHub Pages, mobile) chama a api.github.com direto — CORS é permitido.
+async function callGithubDirect(method, path, token, body) {
+  try {
+    if (method === "GET_RAW") {
+      const resp = await fetch(path, { headers: { "Authorization": "Bearer " + token } });
+      if (!resp.ok) return { ok: false, status: resp.status, error: `HTTP ${resp.status}` };
+      const data = await resp.text();
+      return { ok: true, status: resp.status, data };
+    }
+    const resp = await fetch("https://api.github.com" + path, {
+      method: method || "GET",
+      headers: {
+        "Accept": "application/vnd.github+json",
+        "Authorization": "Bearer " + token,
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(body ? { "Content-Type": "application/json" } : {})
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const text = await resp.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch {}
+    if (!resp.ok) {
+      const errMsg = data?.message || `HTTP ${resp.status}`;
+      return { ok: false, status: resp.status, error: errMsg, data };
+    }
+    return { ok: true, status: resp.status, data };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
 function callGithub(method, path, body) {
   const token = getGhToken();
   if (!token) return Promise.resolve({ ok: false, error: "Token GitHub não configurado" });
+  // Fetch direto quando NÃO for file:// (não tem extensão injetada)
+  if (location.protocol !== "file:") {
+    return callGithubDirect(method, path, token, body);
+  }
+  // file://: usa a bridge via content-app.js (extensão Chrome)
   return new Promise((resolve) => {
     const reqId = ++_ghReqCounter;
     _ghPending.set(reqId, { resolve });
