@@ -66,6 +66,37 @@ const COZY = {
   fontHand: "'Caveat', cursive",
 };
 
+// Estilo padrão dos botões de ação dos cards no banco — ícone único 30x30 minimal
+function iconBtnStyle(intent) {
+  const cores = {
+    primary: { color: COZY.peach,   bg: `${COZY.peach}14`, border: `${COZY.peach}33` },
+    accent:  { color: COZY.peach,   bg: 'transparent',     border: COZY.lineSoft     },
+    danger:  { color: COZY.rose,    bg: 'transparent',     border: COZY.lineSoft     },
+    success: { color: COZY.sage,    bg: 'transparent',     border: COZY.lineSoft     },
+    neutral: { color: COZY.textSoft,bg: 'transparent',     border: COZY.lineSoft     },
+  };
+  const c = cores[intent] || cores.neutral;
+  return {
+    background: c.bg,
+    border: `1px solid ${c.border}`,
+    color: c.color,
+    width: 30, height: 30, minWidth: 30, padding: 0,
+    borderRadius: 8, cursor: 'pointer',
+    fontSize: 14, lineHeight: 1,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    fontFamily: COZY.font,
+  };
+}
+// Chip pequeno pra indicadores "sem card"/"sem questão"/etc
+function statusChipStyle(tint) {
+  return {
+    fontSize: 9, color: tint || COZY.textFaint,
+    padding: '2px 8px', borderRadius: 999,
+    background: 'transparent', border: `1px solid ${COZY.lineSoft}`,
+    letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600,
+  };
+}
+
 // Tinge de área usado em headers, badges e bordas verticais
 function areaTint(area) {
   return ({
@@ -2451,7 +2482,14 @@ Retorne SOMENTE um JSON array (sem markdown):
                         <span style={{fontSize:11,color:"#5e6f66"}}>Revisão: {c.nextReview} · {c.interval}d</span>
                         <div style={{display:"flex",gap:6}}>
                           <button style={{...S.btn("success"),padding:"4px 10px",fontSize:11}} onClick={() => generateFlashcardAI(c)} disabled={aiLoading}>✨</button>
-                          <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={() => openTutorWithContext({...c})}>💬</button>{(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return lk ? <button title="Ir para o flashcard" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("flashcards"); setBankExpandedId(lk.id); setBankHighlightId(lk.id); setTimeout(()=>{const el=document.getElementById("card-"+lk.id);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>⚡ Card</button> : <span title="Nenhum flashcard vinculado"   style={{fontSize:10,color:"#5e6f66",padding:"3px 6px",borderRadius:6,background:"#243530",border:"1px solid #324239"}}>sem card</span>; })()}<button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={() => deleteCard(c.id)}>✕</button>
+                          {(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return (
+                            <>
+                              <button title="Tutor — perguntar sobre esta questão" style={iconBtnStyle()} onClick={() => openTutorWithContext({...c})}>💬</button>
+                              {lk && <button title="Ir para o flashcard vinculado" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("flashcards"); setBankExpandedId(lk.id); setBankHighlightId(lk.id); setTimeout(()=>{const el=document.getElementById("card-"+lk.id);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>⚡</button>}
+                              {!lk && <span style={statusChipStyle()}>sem card</span>}
+                              <button title="Excluir" style={iconBtnStyle("danger")} onClick={() => deleteCard(c.id)}>✕</button>
+                            </>
+                          ); })()}
                         </div>
                       </div>
                     </div>
@@ -2484,12 +2522,18 @@ Retorne SOMENTE um JSON array (sem markdown):
                         {c.versoImg && <img src={c.versoImg} onClick={() => setLightbox(c.versoImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,cursor:"zoom-in"}} alt="verso"/>}
                       </div>
                     )}
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
-                      <span style={{fontSize:11,color:"#5e6f66"}}>{exp?"▲ ocultar":"▼ ver verso"} · {c.nextReview} · {c.interval}d</span>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,gap:8,flexWrap:"wrap"}} onClick={e => e.stopPropagation()}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,flex:1,minWidth:0}}>
+                        <span style={{fontSize:11,color:COZY.textFaint,fontFamily:COZY.fontMono}}>{exp?"▲ ocultar":"▼ ver verso"} · {c.nextReview} · {c.interval}d</span>
+                        {!c.origemId && <span style={statusChipStyle()}>sem questão</span>}
+                      </div>
                       <div style={{display:"flex",gap:6}}>
-                        <button title={c.enviadoMedcof?"Reenviar ao MedCof":"Enviar ao MedCof (baralho de erros)"} style={{...S.btn("primary"),padding:"4px 10px",fontSize:11,opacity: sendingToMedcof===c.id?0.5:1}} disabled={sendingToMedcof===c.id} onClick={e => {e.stopPropagation(); enviarParaMedcof(c);}}>{sendingToMedcof===c.id?"⏳":"📤"}</button>
-                        <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>{(() => { const orig = c.origemId ? cards.find(x => x.id===c.origemId) : null; return orig ? <button title="Ir para a questao" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝 Q</button> : <span title="Nenhuma questao vinculada"   style={{fontSize:10,color:"#5e6f66",padding:"3px 6px",borderRadius:6,background:"#243530",border:"1px solid #324239"}}>sem questao</span>; })()}<button title="Gerar mais ângulos" style={{...S.btn(),padding:"4px 10px",fontSize:11,color:COZY.peach}} onClick={e => {e.stopPropagation(); gerarMaisAngulos(c);}}>✦</button><button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
-                        <button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); deleteCard(c.id);}}>✕</button>
+                        <button title={c.enviadoMedcof?"Reenviar ao MedCof":"Enviar ao MedCof"} style={{...iconBtnStyle("primary"),opacity: sendingToMedcof===c.id?0.5:1}} disabled={sendingToMedcof===c.id} onClick={e => {e.stopPropagation(); enviarParaMedcof(c);}}>{sendingToMedcof===c.id?"⏳":"📤"}</button>
+                        <button title="Tutor — perguntar sobre este card" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>
+                        <button title="Gerar mais ângulos a partir deste card" style={iconBtnStyle("accent")} onClick={e => {e.stopPropagation(); gerarMaisAngulos(c);}}>✦</button>
+                        {c.origemId && cards.find(x => x.id===c.origemId) && <button title="Ir para a questão vinculada" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝</button>}
+                        <button title="Editar" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
+                        <button title="Excluir" style={iconBtnStyle("danger")} onClick={e => {e.stopPropagation(); deleteCard(c.id);}}>✕</button>
                       </div>
                     </div>
                   </div>
