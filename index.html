@@ -1625,7 +1625,41 @@ Retorne SOMENTE um JSON array (sem markdown):
     document.body.removeChild(ta);
   }
 
-  function openTutorWithContext(ctx) { setChatContext(ctx); setChatMessages([]); setPendingFlashcard(null); setChatOpen(true); }
+  function openTutorWithContext(ctx) {
+    // Mantém histórico se reabrir o MESMO card (compara id ou frente como fallback)
+    const sameCtx = chatContext && ctx && (
+      (chatContext.id != null && ctx.id != null && chatContext.id === ctx.id) ||
+      (chatContext.frente && ctx.frente && chatContext.frente === ctx.frente) ||
+      (chatContext.enunciado && ctx.enunciado && chatContext.enunciado === ctx.enunciado)
+    );
+    setChatContext(ctx);
+    if (!sameCtx) { setChatMessages([]); setPendingFlashcard(null); }
+    setChatOpen(true);
+  }
+  // Persiste o chat ativo na sessão (TTL 60 min) — sobrevive a F5 e fechar/abrir o popup
+  const CHAT_SS_KEY = "cad_chat_active";
+  const CHAT_TTL_MS = 60 * 60 * 1000;
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      const raw = sessionStorage.getItem(CHAT_SS_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (Date.now() - (saved.ts || 0) > CHAT_TTL_MS) { sessionStorage.removeItem(CHAT_SS_KEY); return; }
+      if (Array.isArray(saved.messages) && saved.messages.length) setChatMessages(saved.messages);
+      if (saved.context) setChatContext(saved.context);
+    } catch (e) { /* ignora */ }
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      if (chatMessages.length === 0 && !chatContext) {
+        sessionStorage.removeItem(CHAT_SS_KEY);
+      } else {
+        sessionStorage.setItem(CHAT_SS_KEY, JSON.stringify({ messages: chatMessages, context: chatContext, ts: Date.now() }));
+      }
+    } catch (e) { /* ignora quota etc */ }
+  }, [chatMessages, chatContext, loaded]);
 
   function startReview(tipo) {
     const t = today();
@@ -1941,8 +1975,11 @@ Retorne SOMENTE um JSON array (sem markdown):
 
       {chatOpen && (
         <div style={{position:"fixed",bottom:86,right:16,width:"min(360px, calc(100vw - 32px))",height:440,background:"#2c3f38",border:"1px solid #3d5048",borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid #3d5048",fontWeight:500,fontSize:14,color:"#a8bdc4"}}>
-            🩺 Tutor {chatContext ? (chatContext.tipo==="flashcard" ? "— flashcard" : chatContext.enunciado ? "— questão" : "") : ""}
+          <div style={{padding:"10px 12px 10px 16px",borderBottom:`1px solid ${COZY.line}`,fontWeight:500,fontSize:14,color:COZY.sky,display:"flex",alignItems:"center",gap:8}}>
+            <span style={{flex:1}}>🩺 Tutor {chatContext ? (chatContext.tipo==="flashcard" ? "— flashcard" : chatContext.enunciado ? "— questão" : "") : ""}</span>
+            {chatMessages.length > 0 && (
+              <button title="Nova conversa (apaga histórico)" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:11,padding:"3px 8px",borderRadius:6,cursor:"pointer"}}>nova</button>
+            )}
           </div>
           {chatContext && (chatContext.enunciado || chatContext.frente) && (
             <div style={{borderBottom:"1px solid #3d5048"}}>
