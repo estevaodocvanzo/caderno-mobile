@@ -1181,6 +1181,12 @@ function App() {
   const [moreAnglesList, setMoreAnglesList] = useState([]);     // [{tipo, frente, verso, tema}]
   const [moreAnglesLoading, setMoreAnglesLoading] = useState(false);
   const [moreAnglesAdded, setMoreAnglesAdded] = useState(new Set());
+  // Posição do popup do tutor (drag) — null = posição padrão (bottom-right)
+  const [tutorPos, setTutorPos] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem("tutor_pos") || "null"); return v && typeof v.x === "number" ? v : null; } catch { return null; }
+  });
+  const [tutorMin, setTutorMin] = useState(false); // minimizado (só barra)
+  const tutorDragRef = useRef(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatContext, setChatContext] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
@@ -1973,14 +1979,58 @@ Retorne SOMENTE um JSON array (sem markdown):
         </button>
       )}
 
-      {chatOpen && (
-        <div style={{position:"fixed",bottom:86,right:16,width:"min(360px, calc(100vw - 32px))",height:440,background:"#2c3f38",border:"1px solid #3d5048",borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009"}}>
-          <div style={{padding:"10px 12px 10px 16px",borderBottom:`1px solid ${COZY.line}`,fontWeight:500,fontSize:14,color:COZY.sky,display:"flex",alignItems:"center",gap:8}}>
-            <span style={{flex:1}}>🩺 Tutor {chatContext ? (chatContext.tipo==="flashcard" ? "— flashcard" : chatContext.enunciado ? "— questão" : "") : ""}</span>
-            {chatMessages.length > 0 && (
-              <button title="Nova conversa (apaga histórico)" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:11,padding:"3px 8px",borderRadius:6,cursor:"pointer"}}>nova</button>
+      {chatOpen && (() => {
+        const W = 360, H = tutorMin ? 44 : 440;
+        const baseStyle = tutorPos
+          ? { top: tutorPos.y, left: tutorPos.x }
+          : { bottom: 86, right: 16 };
+        const startDrag = (clientX, clientY) => {
+          // Calcula o canto top-left do popup atual
+          const el = document.getElementById("tutor-popup");
+          if (!el) return;
+          const rect = el.getBoundingClientRect();
+          tutorDragRef.current = { offsetX: clientX - rect.left, offsetY: clientY - rect.top };
+          const onMove = (e) => {
+            const cx = e.touches ? e.touches[0].clientX : e.clientX;
+            const cy = e.touches ? e.touches[0].clientY : e.clientY;
+            const x = Math.max(0, Math.min(window.innerWidth - W, cx - tutorDragRef.current.offsetX));
+            const y = Math.max(0, Math.min(window.innerHeight - 44, cy - tutorDragRef.current.offsetY));
+            setTutorPos({ x, y });
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            document.removeEventListener("touchmove", onMove);
+            document.removeEventListener("touchend", onUp);
+            tutorDragRef.current = null;
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+          document.addEventListener("touchmove", onMove, { passive: true });
+          document.addEventListener("touchend", onUp);
+        };
+        // Salva posição quando muda
+        if (tutorPos && JSON.stringify(tutorPos) !== localStorage.getItem("tutor_pos")) {
+          try { localStorage.setItem("tutor_pos", JSON.stringify(tutorPos)); } catch {}
+        }
+        return (
+        <div id="tutor-popup" style={{position:"fixed",...baseStyle,width:`min(${W}px, calc(100vw - 32px))`,height:H,background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009",overflow:"hidden",transition:"height 0.15s ease"}}>
+          <div
+            onMouseDown={e => { if (e.target.tagName !== "BUTTON") startDrag(e.clientX, e.clientY); }}
+            onTouchStart={e => { if (e.target.tagName !== "BUTTON" && e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
+            style={{padding:"10px 12px 10px 16px",borderBottom:tutorMin?"none":`1px solid ${COZY.line}`,fontWeight:500,fontSize:14,color:COZY.sky,display:"flex",alignItems:"center",gap:6,cursor:"move",userSelect:"none"}}
+          >
+            <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🩺 Tutor{chatContext ? (chatContext.tipo==="flashcard" ? " — flashcard" : chatContext.enunciado ? " — questão" : "") : ""}</span>
+            {chatMessages.length > 0 && !tutorMin && (
+              <button title="Nova conversa" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:10,padding:"2px 7px",borderRadius:5,cursor:"pointer"}}>nova</button>
             )}
+            {tutorPos && (
+              <button title="Voltar à posição padrão" onClick={() => { setTutorPos(null); try { localStorage.removeItem("tutor_pos"); } catch {} }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>⤓</button>
+            )}
+            <button title={tutorMin ? "Expandir" : "Minimizar"} onClick={() => setTutorMin(m => !m)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMin ? "▢" : "—"}</button>
+            <button title="Fechar" onClick={() => setChatOpen(false)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>✕</button>
           </div>
+          <div style={{flex:1,display:tutorMin?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
           {chatContext && (chatContext.enunciado || chatContext.frente) && (
             <div style={{borderBottom:"1px solid #3d5048"}}>
               {chatContext.exameCrop && <img src={chatContext.exameCrop} onClick={() => setLightbox(chatContext.exameCrop)} style={{width:"100%",maxHeight:100,objectFit:"cover",display:"block",cursor:"zoom-in"}} alt="exame"/>}
@@ -2031,8 +2081,10 @@ Retorne SOMENTE um JSON array (sem markdown):
             />
             <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0,alignSelf:"flex-end"}} onClick={sendChat} disabled={chatLoading||!chatInput.trim()}>↑</button>
           </div>
+          </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Header com brand */}
       <div style={{display:"flex",alignItems:"center",gap:10,padding:"14px 18px 8px",borderBottom:`1px solid ${COZY.lineSoft}`}}>
