@@ -178,8 +178,27 @@ const saveGistId = (id) => { if (id) localStorage.setItem(GIST_ID_KEY, id.trim()
 const getLastSync = () => localStorage.getItem(LAST_SYNC_KEY) || "";
 const saveLastSync = (iso) => localStorage.setItem(LAST_SYNC_KEY, iso);
 
-const GIST_FILENAME = "caderno-de-erros.json";
+const GIST_FILENAME = "caderno-de-erros.json";          // formato legado (1 arquivo único)
+const GIST_META_FILENAME = "caderno-de-erros.meta.json";// formato chunked: meta + parts
+const GIST_PART_PREFIX = "caderno-de-erros.part-";
 const GIST_DESCRIPTION = "Caderno de Erros — sync (não apague)";
+const CHUNK_BYTES = 700000;                              // max bytes por chunk (mantém <1MB pra evitar truncation)
+function gistPartName(idx) { return GIST_PART_PREFIX + String(idx).padStart(3, "0") + ".json"; }
+function chunkCards(cards) {
+  const chunks = [];
+  let cur = [], curBytes = 2; // "[]"
+  for (const c of cards) {
+    const s = JSON.stringify(c);
+    if (cur.length && curBytes + s.length + 1 > CHUNK_BYTES) {
+      chunks.push(cur);
+      cur = []; curBytes = 2;
+    }
+    cur.push(c);
+    curBytes += s.length + 1;
+  }
+  if (cur.length) chunks.push(cur);
+  return chunks;
+}
 
 // Bridge pro background (content-app.js faz o fetch pra api.github.com)
 let _ghReqCounter = 0;
@@ -247,20 +266,34 @@ function callGithub(method, path, body) {
   });
 }
 
+// Monta os files do gist em formato chunked (meta + parts)
+function buildGistFiles(cards, deletedIds) {
+  const meta = { deletedIds: deletedIds || {}, version: 3, savedAt: nowIso(), totalCards: cards.length };
+  const files = { [GIST_META_FILENAME]: { content: JSON.stringify(meta) } };
+  const chunks = chunkCards(cards);
+  meta.totalParts = chunks.length;
+  files[GIST_META_FILENAME] = { content: JSON.stringify(meta) };
+  chunks.forEach((arr, i) => {
+    files[gistPartName(i + 1)] = { content: JSON.stringify(arr) };
+  });
+  return files;
+}
+
 // Cria novo gist com os dados atuais
 async function gistCreate(cards, deletedIds) {
-  const content = JSON.stringify({ cards, deletedIds, version: 2, savedAt: nowIso() }, null, 2);
   const body = {
     description: GIST_DESCRIPTION,
     public: false,
-    files: { [GIST_FILENAME]: { content } }
+    files: buildGistFiles(cards, deletedIds)
   };
   const resp = await callGithub("POST", "/gists", body);
   if (!resp.ok) throw new Error(resp.error || "Falha ao criar gist");
   return resp.data.id;
 }
 
-// Busca o gist existente
+// Busca o gist existente. Suporta formatos:
+//  (a) chunked: meta.json + part-NNN.json (NOVO, padrão)
+//  (b) legado: caderno-de-erros.json único
 async function gistFetch(id) {
   const resp = await callGithub("GET", "/gists/" + encodeURIComponent(id));
   if (!resp.ok) {
@@ -268,14 +301,42 @@ async function gistFetch(id) {
     if (resp.status === 401) throw new Error("Token inválido ou sem permissão 'gist'");
     throw new Error(resp.error || "Falha ao buscar gist");
   }
-  const file = resp.data?.files?.[GIST_FILENAME] || Object.values(resp.data?.files || {})[0];
+  const files = resp.data?.files || {};
+
+  // (a) formato chunked
+  if (files[GIST_META_FILENAME]) {
+    let meta = {};
+    try { meta = JSON.parse(files[GIST_META_FILENAME].content || "{}"); } catch {}
+    const partNames = Object.keys(files).filter(n => n.startsWith(GIST_PART_PREFIX)).sort();
+    const allCards = [];
+    for (const name of partNames) {
+      const f = files[name];
+      let raw = f.content || "";
+      if (f.truncated && f.raw_url) {
+        const rr = await callGithub("GET_RAW", f.raw_url);
+        if (!rr.ok) throw new Error(`Falha ao buscar chunk ${name}: ${rr.error}`);
+        raw = rr.data;
+      }
+      try {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) allCards.push(...arr);
+      } catch (e) { /* skip chunk inválido */ }
+    }
+    return {
+      cards: allCards,
+      deletedIds: (meta.deletedIds && typeof meta.deletedIds === "object") ? meta.deletedIds : {},
+      updatedAt: resp.data?.updated_at
+    };
+  }
+
+  // (b) formato legado
+  const file = files[GIST_FILENAME] || Object.values(files)[0];
   if (!file) return { cards: [], deletedIds: {}, updatedAt: resp.data?.updated_at };
-  // GitHub trunca o campo content quando o arquivo > 1MB — busca pelo raw_url nesse caso
   let rawContent = file.content || "";
   if (file.truncated && file.raw_url) {
-    const rawResp = await callGithub("GET_RAW", file.raw_url);
-    if (rawResp.ok) rawContent = rawResp.data;
-    else throw new Error("Arquivo muito grande e não foi possível buscar conteúdo raw: " + rawResp.error);
+    const rr = await callGithub("GET_RAW", file.raw_url);
+    if (rr.ok) rawContent = rr.data;
+    else throw new Error("Gist legado >1MB e raw URL bloqueada por CORS — atualize do PC primeiro pra migrar pro formato chunked.");
   }
   let parsed;
   try { parsed = JSON.parse(rawContent || "{}"); }
@@ -287,11 +348,22 @@ async function gistFetch(id) {
   };
 }
 
-// Atualiza o gist com novos dados
+// Atualiza o gist com novos dados (sempre escreve em formato chunked + remove legado/parts antigos)
 async function gistUpdate(id, cards, deletedIds) {
-  const content = JSON.stringify({ cards, deletedIds, version: 2, savedAt: nowIso() }, null, 2);
-  const body = { files: { [GIST_FILENAME]: { content } } };
-  const resp = await callGithub("PATCH", "/gists/" + encodeURIComponent(id), body);
+  const newFiles = buildGistFiles(cards, deletedIds);
+  // Marca pra remover: arquivo legado e parts antigos que não existem mais
+  const cur = await callGithub("GET", "/gists/" + encodeURIComponent(id));
+  if (cur.ok) {
+    const curFiles = cur.data?.files || {};
+    for (const name of Object.keys(curFiles)) {
+      if (name === GIST_FILENAME) {
+        newFiles[name] = null; // remove legado
+      } else if (name.startsWith(GIST_PART_PREFIX) && !(name in newFiles)) {
+        newFiles[name] = null; // remove parts órfãos
+      }
+    }
+  }
+  const resp = await callGithub("PATCH", "/gists/" + encodeURIComponent(id), { files: newFiles });
   if (!resp.ok) throw new Error(resp.error || "Falha ao atualizar gist");
   return true;
 }
