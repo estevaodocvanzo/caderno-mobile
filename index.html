@@ -2685,7 +2685,6 @@ Retorne SOMENTE um JSON (sem markdown):
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
                         <span style={{fontSize:11,color:"#5e6f66"}}>Revisão: {c.nextReview} · {c.interval}d</span>
                         <div style={{display:"flex",gap:6}}>
-                          <button style={{...S.btn("success"),padding:"4px 10px",fontSize:11}} onClick={() => generateFlashcardAI(c)} disabled={aiLoading}>✨</button>
                           {(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return (
                             <>
                               <button title="Tutor — perguntar sobre esta questão" style={iconBtnStyle()} onClick={() => openTutorWithContext({...c})}>💬</button>
