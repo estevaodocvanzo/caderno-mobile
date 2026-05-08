@@ -171,8 +171,15 @@ const saveApiKey = (k) => localStorage.setItem(API_KEY_STORAGE, k);
 // ============================================================
 // Sync via GitHub Gist privado (uma verdade única na nuvem)
 // ============================================================
-const getGhToken = () => localStorage.getItem(GH_TOKEN_KEY) || "";
-const saveGhToken = (t) => { if (t) localStorage.setItem(GH_TOKEN_KEY, t.trim()); else localStorage.removeItem(GH_TOKEN_KEY); };
+// Sanitiza token: remove barras invertidas (escape de markdown como `\_` que vem de WhatsApp/Telegram),
+// remove zero-width chars, remove espaços e quebras de linha.
+const sanitizeToken = (t) => (t || "").replace(/\\/g, "").replace(/[​-‍﻿]/g, "").replace(/\s+/g, "").trim();
+const getGhToken = () => sanitizeToken(localStorage.getItem(GH_TOKEN_KEY) || "");
+const saveGhToken = (t) => {
+  const clean = sanitizeToken(t);
+  if (clean) localStorage.setItem(GH_TOKEN_KEY, clean);
+  else localStorage.removeItem(GH_TOKEN_KEY);
+};
 const getGistId = () => localStorage.getItem(GIST_ID_KEY) || "";
 const saveGistId = (id) => { if (id) localStorage.setItem(GIST_ID_KEY, id.trim()); else localStorage.removeItem(GIST_ID_KEY); };
 const getLastSync = () => localStorage.getItem(LAST_SYNC_KEY) || "";
