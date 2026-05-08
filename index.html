@@ -20,6 +20,22 @@
   ::-webkit-scrollbar-track { background: #1d2a26; }
   ::-webkit-scrollbar-thumb { background: #324239; border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: #3d5048; }
+  /* Animações cozy */
+  @keyframes cozyFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes cozyScaleIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+  @keyframes cozyPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(232,182,154,0.35); } 50% { box-shadow: 0 0 0 10px rgba(232,182,154,0); } }
+  @keyframes cozyBarGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  .cozy-fade-in { animation: cozyFadeIn 0.4s ease-out both; }
+  .cozy-scale-in { animation: cozyScaleIn 0.3s ease-out both; }
+  .cozy-pulse { animation: cozyPulse 2.4s ease-in-out infinite; }
+  .cozy-stagger > * { animation: cozyFadeIn 0.4s ease-out both; }
+  .cozy-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+  .cozy-stagger > *:nth-child(2) { animation-delay: 0.10s; }
+  .cozy-stagger > *:nth-child(3) { animation-delay: 0.15s; }
+  .cozy-stagger > *:nth-child(4) { animation-delay: 0.20s; }
+  .cozy-stagger > *:nth-child(5) { animation-delay: 0.25s; }
+  .cozy-stagger > *:nth-child(6) { animation-delay: 0.30s; }
+  .cozy-bar { transform-origin: bottom; animation: cozyBarGrow 0.5s ease-out both; }
 </style>
 </head>
 <body>
@@ -95,6 +111,28 @@ function statusChipStyle(tint) {
     background: 'transparent', border: `1px solid ${COZY.lineSoft}`,
     letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 600,
   };
+}
+
+// Frases do dia — rotativas, escolhidas determinísticamente pela data
+const DAILY_QUOTES = [
+  { text: "Estudar é colher pequenos enganos, com paciência, até virarem certezas.", author: "anotação de plantão" },
+  { text: "A medicina é uma ciência da incerteza e uma arte da probabilidade.", author: "William Osler" },
+  { text: "Aprender é descobrir aquilo que você já sabe. Fazer é demonstrar que você sabe.", author: "Richard Bach" },
+  { text: "O cérebro do residente é onde os erros se transformam em julgamento.", author: "anotação de plantão" },
+  { text: "Não há nada mais prático do que uma boa teoria.", author: "Kurt Lewin" },
+  { text: "A repetição é a mãe da aprendizagem, o pai da ação, o que a torna a arquiteta do êxito.", author: "Zig Ziglar" },
+  { text: "Quem cura é quem se importa.", author: "Hipócrates" },
+  { text: "Pacientes não se importam com o quanto você sabe até que saibam o quanto você se importa.", author: "Theodore Roosevelt (adaptado)" },
+  { text: "A boa medicina é detalhe, paciência e suspeita honesta.", author: "anotação de plantão" },
+  { text: "Estuda devagar quem tem pressa.", author: "provérbio" },
+  { text: "Errar dói. Errar e revisar muda o cérebro.", author: "anotação de plantão" },
+  { text: "Conhecimento sem prática é como mapa sem viagem.", author: "anotação de plantão" },
+  { text: "Cada flashcard é uma pequena promessa para o seu eu de daqui a 6 meses.", author: "anotação de plantão" },
+];
+function quoteHoje() {
+  const d = new Date();
+  const seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  return DAILY_QUOTES[seed % DAILY_QUOTES.length];
 }
 
 // Cor que indica maturidade do card (intervalo SM-2 atual)
@@ -2179,12 +2217,16 @@ Retorne SOMENTE um JSON (sem markdown):
       )}
 
       {chatOpen && (() => {
+        // Mobile: full-screen sempre
+        const isMobileFullScreen = isMobile;
         const defaultW = tutorSize?.w || 360;
         const defaultH = tutorSize?.h || 440;
-        const W = tutorMax ? Math.min(900, window.innerWidth - 32) : defaultW;
-        const fullH = tutorMax ? window.innerHeight - 32 : defaultH;
-        const H = tutorMin ? 44 : fullH;
-        const baseStyle = tutorMax
+        const W = isMobileFullScreen ? window.innerWidth : (tutorMax ? Math.min(900, window.innerWidth - 32) : defaultW);
+        const fullH = isMobileFullScreen ? window.innerHeight : (tutorMax ? window.innerHeight - 32 : defaultH);
+        const H = (tutorMin && !isMobileFullScreen) ? 44 : fullH;
+        const baseStyle = isMobileFullScreen
+          ? { top: 0, left: 0 }
+          : tutorMax
           ? { top: 16, left: 16 }
           : tutorPos
           ? { top: tutorPos.y, left: tutorPos.x }
@@ -2224,23 +2266,23 @@ Retorne SOMENTE um JSON (sem markdown):
         return (
         <div id="tutor-popup" style={{position:"fixed",...baseStyle,width:`min(${W}px, calc(100vw - 32px))`,height:H,background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009",overflow:"hidden",transition:"height 0.15s ease"}}>
           <div
-            onMouseDown={e => { if (e.target.tagName !== "BUTTON") startDrag(e.clientX, e.clientY); }}
-            onTouchStart={e => { if (e.target.tagName !== "BUTTON" && e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
-            style={{padding:"10px 12px 10px 16px",borderBottom:tutorMin?"none":`1px solid ${COZY.line}`,fontWeight:500,fontSize:14,color:COZY.sky,display:"flex",alignItems:"center",gap:6,cursor:"move",userSelect:"none"}}
+            onMouseDown={e => { if (!isMobileFullScreen && e.target.tagName !== "BUTTON") startDrag(e.clientX, e.clientY); }}
+            onTouchStart={e => { if (!isMobileFullScreen && e.target.tagName !== "BUTTON" && e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY); }}
+            style={{padding:"12px 12px 12px 16px",borderBottom:tutorMin && !isMobileFullScreen?"none":`1px solid ${COZY.line}`,fontWeight:500,fontSize:14,color:COZY.sky,display:"flex",alignItems:"center",gap:6,cursor:isMobileFullScreen?"default":"move",userSelect:"none"}}
           >
             <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🩺 Tutor{chatContext ? (chatContext.tipo==="flashcard" ? " — flashcard" : chatContext.enunciado ? " — questão" : "") : ""}</span>
             {chatMessages.length > 0 && !tutorMin && (
               <button title="Nova conversa" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:10,padding:"2px 7px",borderRadius:5,cursor:"pointer"}}>nova</button>
             )}
-            {(tutorPos || tutorSize) && !tutorMax && (
+            {!isMobileFullScreen && (tutorPos || tutorSize) && !tutorMax && (
               <button title="Voltar à posição/tamanho padrão" onClick={() => { setTutorPos(null); setTutorSize(null); try { localStorage.removeItem("tutor_pos"); localStorage.removeItem("tutor_size"); } catch {} }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>⤓</button>
             )}
-            <button title={tutorMax ? "Restaurar tamanho" : "Maximizar"} onClick={() => { setTutorMax(m => !m); setTutorMin(false); }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMax ? "▭" : "▢"}</button>
-            <button title={tutorMin ? "Expandir" : "Minimizar"} onClick={() => { setTutorMin(m => !m); setTutorMax(false); }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMin ? "▢" : "—"}</button>
-            <button title="Fechar" onClick={() => setChatOpen(false)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>✕</button>
+            {!isMobileFullScreen && <button title={tutorMax ? "Restaurar tamanho" : "Maximizar"} onClick={() => { setTutorMax(m => !m); setTutorMin(false); }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMax ? "▭" : "▢"}</button>}
+            {!isMobileFullScreen && <button title={tutorMin ? "Expandir" : "Minimizar"} onClick={() => { setTutorMin(m => !m); setTutorMax(false); }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMin ? "▢" : "—"}</button>}
+            <button title="Fechar" onClick={() => setChatOpen(false)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:18,padding:"2px 8px",cursor:"pointer"}}>✕</button>
           </div>
-          {/* Resize handle (canto inferior direito) — desabilitado em min/max */}
-          {!tutorMin && !tutorMax && (
+          {/* Resize handle (canto inferior direito) — desabilitado em mobile/min/max */}
+          {!isMobileFullScreen && !tutorMin && !tutorMax && (
             <div
               onMouseDown={e => {
                 e.preventDefault(); e.stopPropagation();
@@ -2408,13 +2450,21 @@ Retorne SOMENTE um JSON (sem markdown):
               <div style={{position:"absolute",right:-6,top:6,opacity:0.45,pointerEvents:"none"}}>
                 <BrandMark size={120} accent={COZY.peach} ink={COZY.bg}/>
               </div>
-              <div style={{position:"relative"}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+              <div style={{position:"relative"}} className="cozy-fade-in">
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
                   <span style={{fontFamily:COZY.fontHand,fontSize:22,color:COZY.peach,lineHeight:1}}>{saud}</span>
                   <span style={{fontSize:10,color:COZY.textMute,letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:600}}>· {dataFmt}</span>
                 </div>
+                {(() => { const q = quoteHoje(); return (
+                  <>
+                    <div style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontWeight:400,fontSize:17,lineHeight:1.4,color:COZY.text,letterSpacing:"-0.005em",maxWidth:"85%"}}>
+                      “{q.text}”
+                    </div>
+                    <div style={{fontSize:10,color:COZY.textFaint,marginTop:8,fontStyle:"italic"}}>— {q.author}</div>
+                  </>
+                ); })()}
                 {!getApiKey() && (
-                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:COZY.butterSoft,border:`1px solid ${COZY.butter}40`,borderRadius:8,marginBottom:14,fontSize:12,color:COZY.butter}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:COZY.butterSoft,border:`1px solid ${COZY.butter}40`,borderRadius:8,marginTop:14,fontSize:12,color:COZY.butter}}>
                     <span>⚠️ Chave da Anthropic não configurada.</span>
                     <button style={{background:"transparent",border:"none",color:COZY.butter,cursor:"pointer",fontWeight:700,textDecoration:"underline",fontSize:12}} onClick={() => setConfigOpen(true)}>configurar</button>
                   </div>
@@ -2435,7 +2485,7 @@ Retorne SOMENTE um JSON (sem markdown):
                 </div>
                 {dueToday > 0 && (
                   <div style={{marginTop:14,display:"flex",gap:6,flexWrap:"wrap"}}>
-                    <button style={{...S.btn("primary"),flex:"1 1 100%",padding:"12px",fontSize:12,letterSpacing:"0.04em",textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:8}} onClick={() => startReview("flashcard")}>
+                    <button className="cozy-pulse" style={{...S.btn("primary"),flex:"1 1 100%",padding:"12px",fontSize:12,letterSpacing:"0.04em",textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:8}} onClick={() => startReview("flashcard")}>
                       começar revisão
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
                     </button>
@@ -2479,7 +2529,7 @@ Retorne SOMENTE um JSON (sem markdown):
                       const today = i === week.length - 1;
                       return (
                         <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                          <div style={{width:"100%",height:`${(w.n/maxWeek)*100}%`,minHeight:w.n>0?3:0,background:today?COZY.peach:COZY.surface,borderRadius:3}}/>
+                          <div className="cozy-bar" style={{width:"100%",height:`${(w.n/maxWeek)*100}%`,minHeight:w.n>0?3:0,background:today?COZY.peach:COZY.surface,borderRadius:3,animationDelay:`${0.2 + i*0.05}s`}}/>
                           <span style={{fontSize:8,color:today?COZY.peach:COZY.textFaint,fontFamily:COZY.fontMono}}>{w.label}</span>
                         </div>
                       );
@@ -2802,7 +2852,7 @@ Retorne SOMENTE um JSON (sem markdown):
             </div>
             {/* Card central */}
             <div style={{flex:1,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <div style={{width:"100%",background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:14,padding:"24px 22px",position:"relative",boxShadow:"0 18px 50px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
+              <div key={currentCard.id} className="cozy-scale-in" style={{width:"100%",background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:14,padding:"24px 22px",position:"relative",boxShadow:"0 18px 50px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
                 {/* corner ornaments */}
                 <div style={{position:"absolute",top:10,left:10,width:14,height:14,borderTop:`1.5px solid ${COZY.peach}`,borderLeft:`1.5px solid ${COZY.peach}`,opacity:0.5}}/>
                 <div style={{position:"absolute",bottom:10,right:10,width:14,height:14,borderBottom:`1.5px solid ${COZY.peach}`,borderRight:`1.5px solid ${COZY.peach}`,opacity:0.5}}/>
