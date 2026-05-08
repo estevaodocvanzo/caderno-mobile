@@ -2753,9 +2753,7 @@ Retorne SOMENTE um JSON (sem markdown):
                   <div style={{position:"absolute",inset:0,width:`${((reviewIdx+1)/total)*100}%`,background:COZY.peach,borderRadius:2}}/>
                 </div>
               </div>
-              {currentCard.tipo === "flashcard" && (
-                <button title="Editar este flashcard" style={iconBtnStyle()} onClick={() => setEditingCard(currentCard)}>✏️</button>
-              )}
+              <button title="Editar este flashcard" style={iconBtnStyle()} onClick={() => setEditingCard(currentCard)}>✏️</button>
               <button title="Tutor — perguntar sobre este card" style={iconBtnStyle()} onClick={() => openTutorWithContext({...currentCard})}>💬</button>
             </div>
             {/* Area pill */}
