@@ -182,7 +182,7 @@ const GIST_FILENAME = "caderno-de-erros.json";          // formato legado (1 arq
 const GIST_META_FILENAME = "caderno-de-erros.meta.json";// formato chunked: meta + parts
 const GIST_PART_PREFIX = "caderno-de-erros.part-";
 const GIST_DESCRIPTION = "Caderno de Erros — sync (não apague)";
-const CHUNK_BYTES = 700000;                              // max bytes por chunk (mantém <1MB pra evitar truncation)
+const CHUNK_BYTES = 350000;                              // max bytes por chunk (mantém pequeno o suficiente pra GitHub não truncar — limite empírico < 700KB)
 function gistPartName(idx) { return GIST_PART_PREFIX + String(idx).padStart(3, "0") + ".json"; }
 function chunkCards(cards) {
   const chunks = [];
