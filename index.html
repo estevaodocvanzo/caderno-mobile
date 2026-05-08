@@ -1212,6 +1212,11 @@ function App() {
   const [moreAnglesList, setMoreAnglesList] = useState([]);     // [{tipo, frente, verso, tema}]
   const [moreAnglesLoading, setMoreAnglesLoading] = useState(false);
   const [moreAnglesAdded, setMoreAnglesAdded] = useState(new Set());
+  // Aba "Adicionar" — texto livre + IA
+  const [addText, setAddText] = useState("");
+  const [addAreaSel, setAddAreaSel] = useState("");  // vazio = IA detecta
+  const [addLoading, setAddLoading] = useState(false);
+  const [addPreview, setAddPreview] = useState(null); // {tipoCard, frente, verso, tema, area}
   // Posição do popup do tutor (drag) — null = posição padrão (bottom-right)
   const [tutorPos, setTutorPos] = useState(() => {
     try { const v = JSON.parse(localStorage.getItem("tutor_pos") || "null"); return v && typeof v.x === "number" ? v : null; } catch { return null; }
@@ -1618,6 +1623,91 @@ Retorne SOMENTE um JSON array (sem markdown):
     } finally {
       setMoreAnglesLoading(false);
     }
+  }
+
+  // Gera 1 flashcard atômico a partir de texto livre (anotação, trecho de aula, comentário)
+  async function gerarFlashcardDeTexto() {
+    if (!getApiKey()) { alert("Configure a chave da Anthropic primeiro."); setConfigOpen(true); return; }
+    const texto = (addText || "").trim();
+    if (texto.length < 20) { alert("Cole pelo menos uma frase com conteúdo médico."); return; }
+    setAddLoading(true);
+    setAddPreview(null);
+    const areaHint = addAreaSel ? `\nÁrea sugerida pelo usuário: ${addAreaSel}` : "";
+    const prompt = `Você é mentor sênior de aprovação em residência médica em bancas brasileiras de alta competitividade.
+
+A partir do texto abaixo (anotação, trecho de aula, comentário ou ideia solta), crie UM flashcard ATÔMICO — testando UMA única ideia, recuperável em menos de 10 segundos.
+
+TEXTO FONTE:
+${texto}
+${areaHint}
+
+ESCOLHA UM ENTRE 5 TIPOS — o mais útil pra esse conteúdo:
+  1. GATILHO → ENTIDADE (sinal/sintoma/achado patognomônico → entidade)
+  2. VINHETA CONDENSADA → DIAGNÓSTICO
+  3. DIAGNÓSTICO → CONDUTA (próximo passo)
+  4. DIFERENCIAL X vs Y (qual achado distingue)
+  5. ARMADILHA / VALOR DE CORTE / MECANISMO
+
+REGRAS:
+- Frente CURTA (1-3 linhas), uma única ideia. **Negrito** no termo crítico.
+- Verso DIRETO (1-4 linhas), termo técnico preciso, **negrito** no termo-chave.
+- Se o texto tem valor numérico cobrável (dose, corte), gere tipo 5 com o número.
+- Use o conteúdo do texto como FONTE — não invente fatos não suportados por ele.
+
+Retorne SOMENTE um JSON (sem markdown):
+{
+  "tema": "tema clínico específico",
+  "area": "uma entre: Clínica Médica, Cirurgia, GO, Pediatria, Preventiva, Psiquiatria, Neurologia, Ortopedia, Outro",
+  "tipo": "1|2|3|4|5",
+  "tipoNome": "nome curto do tipo",
+  "frente": "...",
+  "verso": "..."
+}`;
+    try {
+      const resp = await callAnthropic({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1500,
+        messages: [{ role: "user", content: prompt }]
+      });
+      const txt = (resp.content || []).map(i => i.text || "").join("");
+      const m = txt.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse((m ? m[0] : txt).replace(/```json|```/g, "").trim());
+      if (!parsed.frente || !parsed.verso) throw new Error("Resposta sem frente/verso");
+      setAddPreview({
+        tipoCard: String(parsed.tipo || ""),
+        tipoNome: parsed.tipoNome || "",
+        frente: parsed.frente,
+        verso: parsed.verso,
+        tema: parsed.tema || "",
+        area: AREAS.includes(parsed.area) ? parsed.area : (addAreaSel || "Outro"),
+      });
+    } catch (e) {
+      alert("Erro ao gerar: " + e.message);
+    } finally {
+      setAddLoading(false);
+    }
+  }
+
+  function salvarFlashcardDeTexto() {
+    if (!addPreview) return;
+    const novo = {
+      id: Date.now(),
+      tipo: "flashcard",
+      frente: addPreview.frente,
+      verso: addPreview.verso,
+      area: addPreview.area || "Outro",
+      tema: addPreview.tema || "",
+      tipoCard: addPreview.tipoCard || "",
+      interval: 1, repetitions: 0, easeFactor: 2.5,
+      nextReview: today(),
+      createdAt: nowIso(), updatedAt: nowIso(),
+    };
+    setCards(prev => [...prev, novo]);
+    setAddText("");
+    setAddAreaSel("");
+    setAddPreview(null);
+    showToast("✦ flashcard salvo");
+    setView("home");
   }
 
   function adicionarAngulo(idx, suggestion) {
@@ -2347,79 +2437,79 @@ Retorne SOMENTE um JSON array (sem markdown):
 
         {view === "add" && (
           <div>
-            <div style={{display:"flex",gap:8,marginBottom:16}}>
-              <button style={{...S.btn(addMode==="questao"?"primary":""),flex:1}} onClick={() => setAddMode("questao")}>Questão</button>
-              <button style={{...S.btn(addMode==="flashcard"?"success":""),flex:1}} onClick={() => setAddMode("flashcard")}>Flashcard manual</button>
-            </div>
-            <div style={S.card}>
-              <p style={{fontSize:13,fontWeight:500,marginBottom:10}}>📷 Imagens da questão</p>
-              <div style={{border:"1px dashed #3d5048",borderRadius:8,padding:14,textAlign:"center",marginBottom:10,cursor:"pointer"}} onClick={() => fileRef.current.click()}>
-                <p style={{color:"#5e6f66",fontSize:13,margin:"0 0 2px"}}>Clique para adicionar imagens</p>
-                <p style={{color:"#3d5048",fontSize:12,margin:0}}>ou cole com Ctrl+V — pode adicionar várias</p>
+            {/* Hero curto */}
+            <div style={{padding:"4px 0 14px"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <div style={{width:18,height:1,background:COZY.peach}}/>
+                <span style={{fontSize:10,color:COZY.peach,letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:700}}>novo flashcard</span>
               </div>
-              <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleImgChange}/>
-              {imgPreviews.length > 0 && (
-                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
-                  {imgPreviews.map((src, i) => (
-                    <div key={i} style={{position:"relative",display:"inline-block"}}>
-                      <img src={src} style={{height:80,borderRadius:6,border:"1px solid #3d5048",display:"block",cursor:"zoom-in"}} onClick={() => setLightbox(src)} alt={`img-${i}`}/>
-                      <button onClick={() => removeImgAt(i)} style={{position:"absolute",top:-6,right:-6,background:"#d9a3a3",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
-                    </div>
-                  ))}
+              <h2 style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:22,letterSpacing:"-0.01em",color:COZY.text,margin:"0 0 4px"}}>Cole um <em style={{color:COZY.peach,fontWeight:500}}>texto</em> e a IA cria um flashcard atômico.</h2>
+              <p style={{fontSize:12,color:COZY.textMute,margin:0,lineHeight:1.5}}>Anotação de aula, comentário de gabarito, trecho de livro, lembrete de plantão. A IA escolhe o melhor formato (gatilho · vinheta · conduta · diferencial · armadilha) e gera frente + verso curtos.</p>
+            </div>
+
+            {/* Input */}
+            <div style={S.card}>
+              <label style={S.lbl}>Texto fonte</label>
+              <textarea
+                style={{...S.inp, minHeight:140, resize:"vertical", marginBottom:10, fontFamily:COZY.font, fontSize:13, lineHeight:1.55}}
+                placeholder="Ex.: Lidocaína em lipoaspiração tumescente — dose máxima 35-55 mg/kg (Klein), bem acima dos 7 mg/kg da dose padrão. Toxicidade pode aparecer no pós-op imediato com sintomas neurológicos e cardíacos. Tratamento: emulsão lipídica 20% IV."
+                value={addText}
+                onChange={e => setAddText(e.target.value)}
+                disabled={addLoading}
+              />
+              <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:12}}>
+                <div>
+                  <label style={S.lbl}>Área</label>
+                  <select style={{...S.inp,padding:"8px 10px"}} value={addAreaSel} onChange={e => setAddAreaSel(e.target.value)} disabled={addLoading}>
+                    <option value="">IA detecta</option>
+                    {AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
                 </div>
-              )}
-              {imgFiles.length > 0 && <button style={{...S.btn("primary"),width:"100%",marginBottom:6}} onClick={extractWithAI} disabled={aiLoading}>{aiLoading ? `Extraindo…` : `✨ Extrair questão (${imgFiles.length} imagem${imgFiles.length>1?"ns":""})`}</button>}
-              {aiError && <p style={{color:"#fc8181",fontSize:12,margin:"4px 0"}}>{aiError}</p>}
-            </div>
-            <div style={S.card}>
-              {form.exameCrop && <ExamHeader src={form.exameCrop} onRemove={() => setForm(f => ({...f, exameCrop: null}))} onZoom={setLightbox}/>}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-                <div><label style={S.lbl}>Área</label><select style={S.inp} value={form.area} onChange={e => setForm(f => ({...f, area: e.target.value}))}>{AREAS.map(a => <option key={a}>{a}</option>)}</select></div>
-                <div><label style={S.lbl}>Tema</label><input style={S.inp} placeholder="ex: IAM, Dengue…" value={form.tema} onChange={e => setForm(f => ({...f, tema: e.target.value}))}/></div>
+                <div style={{display:"flex",alignItems:"flex-end"}}>
+                  <button
+                    style={{...S.btn("primary"),width:"100%",padding:"10px",fontSize:13,letterSpacing:"0.04em",textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+                    disabled={addLoading || (addText||"").trim().length < 20}
+                    onClick={gerarFlashcardDeTexto}
+                  >
+                    {addLoading ? "✦ gerando…" : "✦ gerar flashcard"}
+                  </button>
+                </div>
               </div>
-              <label style={S.lbl}>{addMode === "flashcard" ? "Frente (pergunta)" : "Enunciado"}</label>
-              <textarea style={{...S.inp, minHeight:80, resize:"vertical", marginBottom:10}} placeholder={addMode === "flashcard" ? "Pergunta…" : "Enunciado da questão…"} value={form.enunciado} onChange={e => setForm(f => ({...f, enunciado: e.target.value}))}/>
-              {addMode === "questao" && (
-                <React.Fragment>
-                  <label style={S.lbl}>Alternativas</label>
-                  {["A","B","C","D","E"].map((l, i) => (
-                    <div key={l} style={{display:"flex",gap:6,alignItems:"center",marginBottom:6}}>
-                      <span style={{...S.bdg(form.correta===l?"green":""), minWidth:24, textAlign:"center", flexShrink:0}}>{l}</span>
-                      <input style={S.inp} placeholder={`Alternativa ${l}`} value={form.alternativas[i]} onChange={e => { const a = [...form.alternativas]; a[i] = e.target.value; setForm(f => ({...f, alternativas: a})); }}/>
-                    </div>
-                  ))}
-                  <label style={{...S.lbl,marginTop:10}}>Resposta correta</label>
-                  <div style={{display:"flex",gap:6,marginBottom:12}}>
-                    {["A","B","C","D","E"].map(l => <button key={l} style={{...S.btn(form.correta===l?"success":""),padding:"7px 14px"}} onClick={() => setForm(f => ({...f, correta: l}))}>{l}</button>)}
+              {!getApiKey() && <p style={{fontSize:11,color:COZY.butter,margin:"4px 0 0"}}>⚠ Configure a chave da Anthropic em ⚙ Configurações pra usar a IA.</p>}
+            </div>
+
+            {/* Preview */}
+            {addPreview && (() => {
+              const tipoNomes = {"1":"gatilho","2":"vinheta","3":"conduta","4":"diferencial","5":"armadilha"};
+              const tipoCor = {"1":COZY.sky,"2":COZY.peach,"3":COZY.sage,"4":COZY.butter,"5":COZY.rose}[String(addPreview.tipoCard)] || COZY.peach;
+              const nome = addPreview.tipoNome || tipoNomes[String(addPreview.tipoCard)] || "ângulo";
+              return (
+                <div style={{...S.card,borderLeft:`3px solid ${tipoCor}`}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                    <span style={{fontSize:9,color:tipoCor,letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:700}}>{nome}</span>
+                    <span style={{fontSize:10,color:COZY.textFaint}}>·</span>
+                    <span style={{fontSize:11,color:COZY.textMute,fontStyle:"italic",fontFamily:COZY.fontDisplay}}>{addPreview.area} · {addPreview.tema}</span>
                   </div>
-                  <label style={{...S.lbl,marginBottom:6}}>Qual alternativa você marcou? <span style={{color:"#5e6f66",fontWeight:400}}>(opcional)</span></label>
-                  <div style={{display:"flex",gap:6,marginBottom:12}}>
-                    {["A","B","C","D","E"].map(l => (
-                      <button key={l} style={{...S.btn(form.alternativaMarcada===l?"danger":""),padding:"7px 14px",opacity: form.correta===l ? 0.3 : 1}} onClick={() => setForm(f => ({...f, alternativaMarcada: f.alternativaMarcada===l?"":l}))} disabled={form.correta===l}>{l}</button>
-                    ))}
-                  </div>
-                </React.Fragment>
-              )}
-              <label style={S.lbl}>{addMode === "flashcard" ? "Verso (resposta)" : "Explicação"}</label>
-              <textarea style={{...S.inp, minHeight:70, resize:"vertical", marginBottom:14}} placeholder={addMode === "flashcard" ? "Resposta…" : "Explicação…"} value={form.explicacao} onChange={e => setForm(f => ({...f, explicacao: e.target.value}))}/>
-              {addMode === "questao" && <ComentarioSection form={form} setForm={setForm}/>}
-              {addMode === "flashcard" ? (
-                <button style={{...S.btn("success"),width:"100%",padding:11}} disabled={!form.enunciado} onClick={() => {
-                  const base = {id: Date.now(), area: form.area, tema: form.tema, interval: 1, repetitions: 0, easeFactor: 2.5, nextReview: today(), createdAt: today(), updatedAt: nowIso()};
-                  setCards(prev => [...prev, {...base, tipo:"flashcard", frente: form.enunciado, verso: form.explicacao, frenteImg: null, versoImg: null}]);
-                  setForm(emptyForm); showToast("Flashcard salvo!"); setView("home");
-                }}>Salvar flashcard</button>
-              ) : (
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  <p style={{fontSize:12,color:"#8d9890",margin:"0 0 2px"}}>O que deseja salvar?</p>
-                  <button style={{...S.btn("primary"),padding:"11px"}} disabled={!form.enunciado||aiLoading} onClick={() => saveWithOption("ambos")}>{aiLoading ? "Gerando…" : "✨ Questão + Flashcard (recomendado)"}</button>
+                  <label style={S.lbl}>Frente</label>
+                  <textarea
+                    style={{...S.inp, minHeight:54, resize:"vertical", marginBottom:10, fontFamily:COZY.fontDisplay, fontSize:14, lineHeight:1.45}}
+                    value={addPreview.frente}
+                    onChange={e => setAddPreview(p => ({...p, frente: e.target.value}))}
+                  />
+                  <label style={S.lbl}>Verso</label>
+                  <textarea
+                    style={{...S.inp, minHeight:80, resize:"vertical", marginBottom:14, fontSize:13, lineHeight:1.55}}
+                    value={addPreview.verso}
+                    onChange={e => setAddPreview(p => ({...p, verso: e.target.value}))}
+                  />
                   <div style={{display:"flex",gap:8}}>
-                    <button style={{...S.btn("success"),flex:1,padding:"10px"}} disabled={!form.enunciado||aiLoading} onClick={() => saveWithOption("flashcard")}>Só flashcard</button>
-                    <button style={{...S.btn(),flex:1,padding:"10px"}} disabled={!form.enunciado} onClick={() => saveWithOption("questao")}>Só questão</button>
+                    <button style={{...S.btn("primary"),flex:2,padding:"10px"}} disabled={!addPreview.frente.trim() || !addPreview.verso.trim()} onClick={salvarFlashcardDeTexto}>+ adicionar ao caderno</button>
+                    <button style={{...S.btn(),flex:1,padding:"10px"}} disabled={addLoading} onClick={gerarFlashcardDeTexto}>↻ refazer</button>
+                    <button style={{...S.btn(),padding:"10px 14px"}} onClick={() => setAddPreview(null)} title="Descartar preview">✕</button>
                   </div>
                 </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
         )}
 
