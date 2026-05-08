@@ -2596,7 +2596,6 @@ Retorne SOMENTE um JSON (sem markdown):
                       <span style={S.bdg("blue")}>{c.area}</span>
                       {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
                       {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
-                      {c.enviadoMedcof && <span style={{...S.bdg("green"),background:"#2b3a2c",color:"#a8c4a2"}}>✓ MedCof {new Date(c.enviadoMedcof).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>}
                     </div>
                     <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
                       <div style={{fontSize:13,fontWeight:500,color:"#f0e6d2",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: c.frente}}/>
@@ -2618,7 +2617,6 @@ Retorne SOMENTE um JSON (sem markdown):
                         {!c.origemId && <span style={statusChipStyle()}>sem questão</span>}
                       </div>
                       <div style={{display:"flex",gap:6}}>
-                        <button title={c.enviadoMedcof?"Reenviar ao MedCof":"Enviar ao MedCof"} style={{...iconBtnStyle("primary"),opacity: sendingToMedcof===c.id?0.5:1}} disabled={sendingToMedcof===c.id} onClick={e => {e.stopPropagation(); enviarParaMedcof(c);}}>{sendingToMedcof===c.id?"⏳":"📤"}</button>
                         <button title="Tutor — perguntar sobre este card" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>
                         <button title="Gerar mais ângulos a partir deste card" style={iconBtnStyle("accent")} onClick={e => {e.stopPropagation(); gerarMaisAngulos(c);}}>✦</button>
                         {c.origemId && cards.find(x => x.id===c.origemId) && <button title="Ir para a questão vinculada" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝</button>}
