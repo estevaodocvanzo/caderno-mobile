@@ -1212,11 +1212,12 @@ function App() {
   const [moreAnglesList, setMoreAnglesList] = useState([]);     // [{tipo, frente, verso, tema}]
   const [moreAnglesLoading, setMoreAnglesLoading] = useState(false);
   const [moreAnglesAdded, setMoreAnglesAdded] = useState(new Set());
-  // Aba "Adicionar" — texto livre + IA
+  // Aba "Adicionar" — texto livre + imagens + IA
   const [addText, setAddText] = useState("");
   const [addAreaSel, setAddAreaSel] = useState("");  // vazio = IA detecta
   const [addLoading, setAddLoading] = useState(false);
   const [addPreview, setAddPreview] = useState(null); // {tipoCard, frente, verso, tema, area}
+  const [addImages, setAddImages] = useState([]);  // [{dataUrl, mediaType}]
   // Posição do popup do tutor (drag) — null = posição padrão (bottom-right)
   const [tutorPos, setTutorPos] = useState(() => {
     try { const v = JSON.parse(localStorage.getItem("tutor_pos") || "null"); return v && typeof v.x === "number" ? v : null; } catch { return null; }
@@ -1625,21 +1626,22 @@ Retorne SOMENTE um JSON array (sem markdown):
     }
   }
 
-  // Gera 1 flashcard atômico a partir de texto livre (anotação, trecho de aula, comentário)
+  // Gera 1 flashcard atômico a partir de texto livre, imagens, ou ambos
   async function gerarFlashcardDeTexto() {
     if (!getApiKey()) { alert("Configure a chave da Anthropic primeiro."); setConfigOpen(true); return; }
     const texto = (addText || "").trim();
-    if (texto.length < 20) { alert("Cole pelo menos uma frase com conteúdo médico."); return; }
+    const temImagens = addImages.length > 0;
+    if (texto.length < 20 && !temImagens) { alert("Cole um texto (≥ 20 caracteres) ou anexe pelo menos uma imagem."); return; }
     setAddLoading(true);
     setAddPreview(null);
     const areaHint = addAreaSel ? `\nÁrea sugerida pelo usuário: ${addAreaSel}` : "";
-    const prompt = `Você é mentor sênior de aprovação em residência médica em bancas brasileiras de alta competitividade.
+    const fonteDesc = temImagens
+      ? (texto ? "as imagens em anexo + o texto abaixo" : "as imagens em anexo (que contêm o conteúdo a estudar — comentário do cursinho, slide de aula, anotação)")
+      : "o texto abaixo";
+    const promptText = `Você é mentor sênior de aprovação em residência médica em bancas brasileiras de alta competitividade.
 
-A partir do texto abaixo (anotação, trecho de aula, comentário ou ideia solta), crie UM flashcard ATÔMICO — testando UMA única ideia, recuperável em menos de 10 segundos.
-
-TEXTO FONTE:
-${texto}
-${areaHint}
+A partir d${fonteDesc.startsWith("as") || fonteDesc.startsWith("o") ? "" : "e "}${fonteDesc}, crie UM flashcard ATÔMICO — testando UMA única ideia, recuperável em menos de 10 segundos.
+${texto ? `\nTEXTO FONTE:\n${texto}` : ""}${areaHint}
 
 ESCOLHA UM ENTRE 5 TIPOS — o mais útil pra esse conteúdo:
   1. GATILHO → ENTIDADE (sinal/sintoma/achado patognomônico → entidade)
@@ -1651,9 +1653,9 @@ ESCOLHA UM ENTRE 5 TIPOS — o mais útil pra esse conteúdo:
 REGRAS:
 - Frente CURTA (1-3 linhas), uma única ideia. **Negrito** no termo crítico.
 - Verso DIRETO (1-4 linhas), termo técnico preciso, **negrito** no termo-chave.
-- Se o texto tem valor numérico cobrável (dose, corte), gere tipo 5 com o número.
-- Use o conteúdo do texto como FONTE — não invente fatos não suportados por ele.
-
+- Se o texto/imagem tem valor numérico cobrável (dose, corte), gere tipo 5 com o número.
+- Use SOMENTE o conteúdo da fonte — não invente fatos não suportados por ela.
+${temImagens ? "- Se as imagens contêm texto (comentário do cursinho), leia e use como fonte primária.\n" : ""}
 Retorne SOMENTE um JSON (sem markdown):
 {
   "tema": "tema clínico específico",
@@ -1663,11 +1665,19 @@ Retorne SOMENTE um JSON (sem markdown):
   "frente": "...",
   "verso": "..."
 }`;
+    // Monta content multimodal (imagens + texto)
+    const content = [];
+    for (const img of addImages) {
+      const b64 = (img.dataUrl || "").split(",")[1] || "";
+      if (!b64) continue;
+      content.push({ type: "image", source: { type: "base64", media_type: img.mediaType || "image/png", data: b64 } });
+    }
+    content.push({ type: "text", text: promptText });
     try {
       const resp = await callAnthropic({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 1500,
-        messages: [{ role: "user", content: prompt }]
+        messages: [{ role: "user", content }]
       });
       const txt = (resp.content || []).map(i => i.text || "").join("");
       const m = txt.match(/\{[\s\S]*\}/);
@@ -1706,9 +1716,39 @@ Retorne SOMENTE um JSON (sem markdown):
     setAddText("");
     setAddAreaSel("");
     setAddPreview(null);
+    setAddImages([]);
     showToast("✦ flashcard salvo");
     setView("home");
   }
+
+  // Helpers de imagens da aba Adicionar — colar (paste) ou anexar (file input)
+  function addImageFromFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    if (file.size > 4_500_000) { alert("Imagem maior que 4.5 MB não suportada (limite da API). Reduza ou tire screenshot menor."); return; }
+    const r = new FileReader();
+    r.onload = ev => {
+      setAddImages(prev => [...prev, { dataUrl: ev.target.result, mediaType: file.type || "image/png" }]);
+    };
+    r.readAsDataURL(file);
+  }
+  function handleAddPaste(e) {
+    if (view !== "add") return;
+    const items = e.clipboardData?.items || [];
+    let added = false;
+    for (const item of items) {
+      if (item.type && item.type.startsWith("image/")) {
+        const f = item.getAsFile();
+        if (f) { addImageFromFile(f); added = true; }
+      }
+    }
+    if (added) e.preventDefault();
+  }
+  // Listener global de paste enquanto a view "add" está aberta
+  useEffect(() => {
+    if (view !== "add") return;
+    document.addEventListener("paste", handleAddPaste);
+    return () => document.removeEventListener("paste", handleAddPaste);
+  }, [view]);
 
   function adicionarAngulo(idx, suggestion) {
     const base = moreAnglesCard;
@@ -2449,15 +2489,46 @@ Retorne SOMENTE um JSON (sem markdown):
 
             {/* Input */}
             <div style={S.card}>
-              <label style={S.lbl}>Texto fonte</label>
+              <label style={S.lbl}>Texto fonte (opcional se houver imagens)</label>
               <textarea
-                style={{...S.inp, minHeight:140, resize:"vertical", marginBottom:10, fontFamily:COZY.font, fontSize:13, lineHeight:1.55}}
-                placeholder="Ex.: Lidocaína em lipoaspiração tumescente — dose máxima 35-55 mg/kg (Klein), bem acima dos 7 mg/kg da dose padrão. Toxicidade pode aparecer no pós-op imediato com sintomas neurológicos e cardíacos. Tratamento: emulsão lipídica 20% IV."
+                style={{...S.inp, minHeight:120, resize:"vertical", marginBottom:10, fontFamily:COZY.font, fontSize:13, lineHeight:1.55}}
+                placeholder="Cole texto aqui — anotação, comentário, trecho de aula. Ou cole uma IMAGEM (Ctrl+V) com Print do comentário do cursinho."
                 value={addText}
                 onChange={e => setAddText(e.target.value)}
                 disabled={addLoading}
               />
-              <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:12}}>
+
+              {/* Imagens — drop / paste / clique */}
+              <label style={S.lbl}>Imagens (opcional — Ctrl+V em qualquer lugar da página, ou clique abaixo)</label>
+              <div
+                style={{border:`1px dashed ${COZY.line}`,borderRadius:8,padding:14,textAlign:"center",marginBottom:10,cursor:"pointer",transition:"background 0.15s"}}
+                onClick={() => { const inp = document.getElementById("add-img-input"); if (inp) inp.click(); }}
+                onDragOver={e => { e.preventDefault(); e.currentTarget.style.background = COZY.bg2; }}
+                onDragLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                onDrop={e => {
+                  e.preventDefault(); e.currentTarget.style.background = "transparent";
+                  for (const f of (e.dataTransfer.files || [])) addImageFromFile(f);
+                }}
+              >
+                <p style={{color:COZY.textMute,fontSize:12,margin:"0 0 2px"}}>📷 cole (Ctrl+V), arraste ou clique pra anexar</p>
+                <p style={{color:COZY.textFaint,fontSize:11,margin:0}}>útil pro print do comentário do cursinho que não permite copiar texto</p>
+              </div>
+              <input id="add-img-input" type="file" accept="image/*" multiple style={{display:"none"}} onChange={e => {
+                for (const f of (e.target.files || [])) addImageFromFile(f);
+                e.target.value = "";
+              }}/>
+              {addImages.length > 0 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
+                  {addImages.map((img, i) => (
+                    <div key={i} style={{position:"relative",display:"inline-block"}}>
+                      <img src={img.dataUrl} style={{height:78,borderRadius:6,border:`1px solid ${COZY.line}`,display:"block",cursor:"zoom-in"}} onClick={() => setLightbox(img.dataUrl)} alt={`img-${i}`}/>
+                      <button onClick={() => setAddImages(prev => prev.filter((_, idx) => idx !== i))} style={{position:"absolute",top:-6,right:-6,background:COZY.rose,border:"none",color:COZY.bg,borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,fontWeight:700}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:10,marginBottom:0}}>
                 <div>
                   <label style={S.lbl}>Área</label>
                   <select style={{...S.inp,padding:"8px 10px"}} value={addAreaSel} onChange={e => setAddAreaSel(e.target.value)} disabled={addLoading}>
@@ -2468,14 +2539,14 @@ Retorne SOMENTE um JSON (sem markdown):
                 <div style={{display:"flex",alignItems:"flex-end"}}>
                   <button
                     style={{...S.btn("primary"),width:"100%",padding:"10px",fontSize:13,letterSpacing:"0.04em",textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
-                    disabled={addLoading || (addText||"").trim().length < 20}
+                    disabled={addLoading || ((addText||"").trim().length < 20 && addImages.length === 0)}
                     onClick={gerarFlashcardDeTexto}
                   >
                     {addLoading ? "✦ gerando…" : "✦ gerar flashcard"}
                   </button>
                 </div>
               </div>
-              {!getApiKey() && <p style={{fontSize:11,color:COZY.butter,margin:"4px 0 0"}}>⚠ Configure a chave da Anthropic em ⚙ Configurações pra usar a IA.</p>}
+              {!getApiKey() && <p style={{fontSize:11,color:COZY.butter,margin:"8px 0 0"}}>⚠ Configure a chave da Anthropic em ⚙ Configurações pra usar a IA.</p>}
             </div>
 
             {/* Preview */}
