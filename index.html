@@ -2745,7 +2745,6 @@ Retorne SOMENTE um JSON (sem markdown):
                       <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
                         <span style={{color:tint,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700}}>{c.area}</span>
                         {c.tema && <><span style={{fontSize:10,color:COZY.textFaint}}>·</span><span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:12,color:COZY.textMute}}>{c.tema}</span></>}
-                        {c.nextReview <= today() && <span style={{...statusChipStyle(COZY.peach),marginLeft:"auto"}}>revisar hoje</span>}
                       </div>
                       <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#f0e6d2"}}>{c.enunciado}</p>
                       {c.enunciadoImgs?.length > 0 && !exp && (
@@ -2770,8 +2769,8 @@ Retorne SOMENTE um JSON (sem markdown):
                           {c.explicacao && <p style={{fontSize:12,color:"#c9bfa6",marginTop:10,lineHeight:1.6,borderTop:"1px solid #324239",paddingTop:8}}>{c.explicacao}</p>}
                         </div>
                       )}
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
-                        <span style={{fontSize:11,color:"#5e6f66"}}>Revisão: {c.nextReview} · {c.interval}d</span>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,gap:8}} onClick={e => e.stopPropagation()}>
+                        <span style={{fontSize:11,color:COZY.textFaint,fontFamily:COZY.fontMono}}>{exp ? "▲ ocultar" : "▼ ver alternativas"}</span>
                         <div style={{display:"flex",gap:6}}>
                           {(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return (
                             <>
