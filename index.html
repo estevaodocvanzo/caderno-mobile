@@ -1185,7 +1185,11 @@ function App() {
   const [tutorPos, setTutorPos] = useState(() => {
     try { const v = JSON.parse(localStorage.getItem("tutor_pos") || "null"); return v && typeof v.x === "number" ? v : null; } catch { return null; }
   });
+  const [tutorSize, setTutorSize] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem("tutor_size") || "null"); return v && typeof v.w === "number" ? v : null; } catch { return null; }
+  });
   const [tutorMin, setTutorMin] = useState(false); // minimizado (só barra)
+  const [tutorMax, setTutorMax] = useState(false); // maximizado (quase fullscreen)
   const tutorDragRef = useRef(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatContext, setChatContext] = useState(null);
@@ -1980,8 +1984,14 @@ Retorne SOMENTE um JSON array (sem markdown):
       )}
 
       {chatOpen && (() => {
-        const W = 360, H = tutorMin ? 44 : 440;
-        const baseStyle = tutorPos
+        const defaultW = tutorSize?.w || 360;
+        const defaultH = tutorSize?.h || 440;
+        const W = tutorMax ? Math.min(900, window.innerWidth - 32) : defaultW;
+        const fullH = tutorMax ? window.innerHeight - 32 : defaultH;
+        const H = tutorMin ? 44 : fullH;
+        const baseStyle = tutorMax
+          ? { top: 16, left: 16 }
+          : tutorPos
           ? { top: tutorPos.y, left: tutorPos.x }
           : { bottom: 86, right: 16 };
         const startDrag = (clientX, clientY) => {
@@ -2009,9 +2019,12 @@ Retorne SOMENTE um JSON array (sem markdown):
           document.addEventListener("touchmove", onMove, { passive: true });
           document.addEventListener("touchend", onUp);
         };
-        // Salva posição quando muda
+        // Salva posição/tamanho quando muda
         if (tutorPos && JSON.stringify(tutorPos) !== localStorage.getItem("tutor_pos")) {
           try { localStorage.setItem("tutor_pos", JSON.stringify(tutorPos)); } catch {}
+        }
+        if (tutorSize && JSON.stringify(tutorSize) !== localStorage.getItem("tutor_size")) {
+          try { localStorage.setItem("tutor_size", JSON.stringify(tutorSize)); } catch {}
         }
         return (
         <div id="tutor-popup" style={{position:"fixed",...baseStyle,width:`min(${W}px, calc(100vw - 32px))`,height:H,background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009",overflow:"hidden",transition:"height 0.15s ease"}}>
@@ -2024,12 +2037,56 @@ Retorne SOMENTE um JSON array (sem markdown):
             {chatMessages.length > 0 && !tutorMin && (
               <button title="Nova conversa" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:10,padding:"2px 7px",borderRadius:5,cursor:"pointer"}}>nova</button>
             )}
-            {tutorPos && (
-              <button title="Voltar à posição padrão" onClick={() => { setTutorPos(null); try { localStorage.removeItem("tutor_pos"); } catch {} }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>⤓</button>
+            {(tutorPos || tutorSize) && !tutorMax && (
+              <button title="Voltar à posição/tamanho padrão" onClick={() => { setTutorPos(null); setTutorSize(null); try { localStorage.removeItem("tutor_pos"); localStorage.removeItem("tutor_size"); } catch {} }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>⤓</button>
             )}
-            <button title={tutorMin ? "Expandir" : "Minimizar"} onClick={() => setTutorMin(m => !m)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMin ? "▢" : "—"}</button>
+            <button title={tutorMax ? "Restaurar tamanho" : "Maximizar"} onClick={() => { setTutorMax(m => !m); setTutorMin(false); }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMax ? "▭" : "▢"}</button>
+            <button title={tutorMin ? "Expandir" : "Minimizar"} onClick={() => { setTutorMin(m => !m); setTutorMax(false); }} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>{tutorMin ? "▢" : "—"}</button>
             <button title="Fechar" onClick={() => setChatOpen(false)} style={{background:"transparent",border:"none",color:COZY.textMute,fontSize:14,padding:"2px 4px",cursor:"pointer"}}>✕</button>
           </div>
+          {/* Resize handle (canto inferior direito) — desabilitado em min/max */}
+          {!tutorMin && !tutorMax && (
+            <div
+              onMouseDown={e => {
+                e.preventDefault(); e.stopPropagation();
+                const startW = W, startH = H, startX = e.clientX, startY = e.clientY;
+                const onMove = (ev) => {
+                  const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
+                  const cy = ev.touches ? ev.touches[0].clientY : ev.clientY;
+                  const w = Math.max(280, Math.min(window.innerWidth - 16, startW + (cx - startX)));
+                  const h = Math.max(200, Math.min(window.innerHeight - 16, startH + (cy - startY)));
+                  setTutorSize({ w, h });
+                };
+                const onUp = () => {
+                  document.removeEventListener("mousemove", onMove);
+                  document.removeEventListener("mouseup", onUp);
+                  document.removeEventListener("touchmove", onMove);
+                  document.removeEventListener("touchend", onUp);
+                  try { const cur = JSON.parse(localStorage.getItem("tutor_size") || "null"); if (cur) localStorage.setItem("tutor_size", JSON.stringify(cur)); } catch {}
+                };
+                document.addEventListener("mousemove", onMove);
+                document.addEventListener("mouseup", onUp);
+              }}
+              onTouchStart={e => {
+                if (!e.touches[0]) return;
+                const startW = W, startH = H, startX = e.touches[0].clientX, startY = e.touches[0].clientY;
+                const onMove = (ev) => {
+                  if (!ev.touches[0]) return;
+                  const w = Math.max(280, Math.min(window.innerWidth - 16, startW + (ev.touches[0].clientX - startX)));
+                  const h = Math.max(200, Math.min(window.innerHeight - 16, startH + (ev.touches[0].clientY - startY)));
+                  setTutorSize({ w, h });
+                };
+                const onUp = () => {
+                  document.removeEventListener("touchmove", onMove);
+                  document.removeEventListener("touchend", onUp);
+                };
+                document.addEventListener("touchmove", onMove, { passive: true });
+                document.addEventListener("touchend", onUp);
+              }}
+              style={{position:"absolute",bottom:0,right:0,width:18,height:18,cursor:"nwse-resize",zIndex:5,background:`linear-gradient(135deg, transparent 50%, ${COZY.line} 50%, ${COZY.line} 60%, transparent 60%, transparent 70%, ${COZY.line} 70%, ${COZY.line} 80%, transparent 80%)`}}
+              title="Arraste pra redimensionar"
+            />
+          )}
           <div style={{flex:1,display:tutorMin?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
           {chatContext && (chatContext.enunciado || chatContext.frente) && (
             <div style={{borderBottom:"1px solid #3d5048"}}>
