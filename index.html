@@ -2042,10 +2042,25 @@ Retorne SOMENTE um JSON array (sem markdown):
           <span style={{fontFamily:COZY.fontMono,fontSize:8,color:COZY.textMute,letterSpacing:"0.18em",textTransform:"uppercase",marginTop:3}}>medicina · revisão</span>
         </div>
         <div style={{flex:1}}/>
-        <button onClick={() => setConfigOpen(true)} title={syncBadge(syncState, !!getGhToken() && !!getGistId()).title} style={{background:"transparent",border:"none",color:COZY.textMute,padding:"6px 8px",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",gap:5}}>
-          {syncBadge(syncState, !!getGhToken() && !!getGistId()).icon}
-          <span style={{fontSize:10,color:COZY.textMute,fontFamily:COZY.fontMono}}>{syncBadge(syncState, !!getGhToken() && !!getGistId()).label}</span>
-        </button>
+        {(() => {
+          const configured = !!getGhToken() && (!!getGistId() || !!getRepo());
+          // Esconde badge se sync não configurado nem tentou ainda
+          if (!configured && syncState?.status !== "error") return null;
+          const b = syncBadge(syncState, configured);
+          // Esconde também se status é "ok" silencioso (não dispara nada novo)
+          if (syncState?.status === "idle" || syncState?.status === "ok") return (
+            <button onClick={() => setConfigOpen(true)} title={b.title} style={{background:"transparent",border:"none",color:COZY.textMute,padding:"6px 8px",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center"}}>
+              {b.icon}
+            </button>
+          );
+          // Erro ou sincronizando: mostra ícone + label
+          return (
+            <button onClick={() => setConfigOpen(true)} title={b.title} style={{background:"transparent",border:"none",color: syncState?.status === "error" ? COZY.rose : COZY.textMute,padding:"6px 8px",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",gap:5}}>
+              {b.icon}
+              <span style={{fontSize:10,fontFamily:COZY.fontMono}}>{b.label}</span>
+            </button>
+          );
+        })()}
         <button style={{background:"transparent",border:"none",color:COZY.textSoft,padding:"6px 8px",cursor:"pointer",fontSize:16}} onClick={() => setConfigOpen(true)} title="Configurações">⚙</button>
       </div>
 
