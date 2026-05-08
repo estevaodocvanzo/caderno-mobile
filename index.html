@@ -171,6 +171,7 @@ const saveApiKey = (k) => localStorage.setItem(API_KEY_STORAGE, k);
 // ============================================================
 // Sync via GitHub Gist privado (uma verdade única na nuvem)
 // ============================================================
+const APP_BUILD = "v5-sanit";
 // Sanitiza token: remove barras invertidas (escape de markdown como `\_` que vem de WhatsApp/Telegram),
 // remove zero-width chars, remove espaços e quebras de linha.
 const sanitizeToken = (t) => (t || "").replace(/\\/g, "").replace(/[​-‍﻿]/g, "").replace(/\s+/g, "").trim();
@@ -304,7 +305,9 @@ async function gistCreate(cards, deletedIds) {
 async function gistFetch(id) {
   const resp = await callGithub("GET", "/gists/" + encodeURIComponent(id));
   if (!resp.ok) {
-    const dbg = ` [s=${resp.status} id=${id?.slice(0,6)}.. tk=${(getGhToken()||'').slice(0,7)}.. via=${location.protocol==='file:'?'ext':'fetch'} msg=${(resp.error||'').slice(0,80)}]`;
+    const tkRaw = localStorage.getItem(GH_TOKEN_KEY) || "";
+    const tkClean = getGhToken();
+    const dbg = ` [build=${APP_BUILD} s=${resp.status} id=${id?.slice(0,6)}.. tkR=${tkRaw.slice(0,8)} tkC=${tkClean.slice(0,8)} via=${location.protocol==='file:'?'ext':'fetch'} msg=${(resp.error||'').slice(0,80)}]`;
     if (resp.status === 404) throw new Error("Gist não encontrado" + dbg);
     if (resp.status === 401) throw new Error("Token inválido ou sem permissão 'gist'" + dbg);
     throw new Error((resp.error || "Falha ao buscar gist") + dbg);
