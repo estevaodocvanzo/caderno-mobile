@@ -186,6 +186,34 @@ const saveGistId = (id) => { if (id) localStorage.setItem(GIST_ID_KEY, id.trim()
 const getLastSync = () => localStorage.getItem(LAST_SYNC_KEY) || "";
 const saveLastSync = (iso) => localStorage.setItem(LAST_SYNC_KEY, iso);
 
+// ============================================================
+// Contents API — sync robusto via repo privado (resolve CORS de gist truncated)
+// ============================================================
+const REPO_KEY = "github_data_repo";        // localStorage: "owner/repo"
+const DATA_DIR = "data";
+const META_FILENAME_REPO = "meta.json";
+const PART_PREFIX_REPO = "part-";
+const REPO_PART_BYTES = 700000;             // chunks < 1MB (limite da Contents API)
+const getRepo = () => (localStorage.getItem(REPO_KEY) || "").trim();
+const saveRepo = (r) => { const v = (r || "").trim(); if (v) localStorage.setItem(REPO_KEY, v); else localStorage.removeItem(REPO_KEY); };
+// base64 UTF-8 safe
+const b64encode = (s) => btoa(unescape(encodeURIComponent(s)));
+const b64decode = (b) => decodeURIComponent(escape(atob((b || "").replace(/\s/g, ""))));
+function chunkCardsBytes(cards, maxBytes) {
+  const out = [];
+  let cur = [], curBytes = 2;
+  for (const c of cards) {
+    const s = JSON.stringify(c);
+    if (cur.length && curBytes + s.length + 1 > maxBytes) {
+      out.push(cur); cur = []; curBytes = 2;
+    }
+    cur.push(c);
+    curBytes += s.length + 1;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
 const GIST_FILENAME = "caderno-de-erros.json";          // formato legado (1 arquivo único)
 const GIST_META_FILENAME = "caderno-de-erros.meta.json";// formato chunked: meta + parts
 const GIST_PART_PREFIX = "caderno-de-erros.part-";
@@ -376,6 +404,124 @@ async function gistUpdate(id, cards, deletedIds) {
   }
   const resp = await callGithub("PATCH", "/gists/" + encodeURIComponent(id), { files: newFiles });
   if (!resp.ok) throw new Error(resp.error || "Falha ao atualizar gist");
+  return true;
+}
+
+// ============================================================
+// Sync via Contents API (repo privado)
+// ============================================================
+
+// Garante que o repo existe; cria se não existir (privado)
+async function ensureRepo(repo) {
+  const r = await callGithub("GET", `/repos/${repo}`);
+  if (r.ok) return true;
+  if (r.status !== 404) throw new Error("Falha ao verificar repo: " + (r.error || r.status));
+  const [owner, name] = repo.split("/");
+  if (!owner || !name) throw new Error("Repo deve ser no formato owner/nome");
+  const me = await callGithub("GET", "/user");
+  if (!me.ok) throw new Error("Falha pra identificar usuário");
+  if (me.data.login.toLowerCase() !== owner.toLowerCase())
+    throw new Error("Você só pode criar repos no seu próprio usuário (" + me.data.login + ")");
+  const create = await callGithub("POST", "/user/repos", {
+    name, private: true,
+    description: "Caderno de Erros — dados (auto)",
+    auto_init: true
+  });
+  if (!create.ok) throw new Error("Falha ao criar repo: " + (create.error || create.status));
+  return true;
+}
+
+// Lista arquivos em data/ e retorna { name → sha }
+async function repoListData(repo) {
+  const r = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}`);
+  if (r.status === 404) return {};
+  if (!r.ok) throw new Error("Falha ao listar " + DATA_DIR + "/: " + (r.error || r.status));
+  const out = {};
+  for (const f of (r.data || [])) {
+    if (f.type === "file") out[f.name] = f.sha;
+  }
+  return out;
+}
+
+// Lê um arquivo específico via Contents API (até 1MB inline)
+async function repoGetFile(repo, name) {
+  const r = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
+  if (!r.ok) throw new Error("Falha ao ler " + name + ": " + (r.error || r.status));
+  if (r.data.encoding !== "base64") throw new Error("Encoding inesperado em " + name);
+  return { sha: r.data.sha, content: b64decode(r.data.content) };
+}
+
+// Cria/atualiza arquivo via PUT
+async function repoPutFile(repo, name, content, sha) {
+  const body = {
+    message: `update ${name}`,
+    content: b64encode(content),
+  };
+  if (sha) body.sha = sha;
+  const r = await callGithub("PUT", `/repos/${repo}/contents/${DATA_DIR}/${name}`, body);
+  if (!r.ok) throw new Error("Falha ao salvar " + name + ": " + (r.error || r.status));
+  return r.data?.content?.sha;
+}
+
+// Remove arquivo via DELETE
+async function repoDeleteFile(repo, name, sha) {
+  const r = await callGithub("DELETE", `/repos/${repo}/contents/${DATA_DIR}/${name}`, {
+    message: `remove ${name}`, sha
+  });
+  return r.ok;
+}
+
+// Pull: baixa todos os parts e monta cards
+async function repoFetch(repo) {
+  const fileShas = await repoListData(repo);
+  const names = Object.keys(fileShas);
+  if (names.length === 0) return { cards: [], deletedIds: {}, fileShas };
+  let meta = {};
+  if (fileShas[META_FILENAME_REPO]) {
+    try { meta = JSON.parse((await repoGetFile(repo, META_FILENAME_REPO)).content); } catch {}
+  }
+  const partNames = names.filter(n => n.startsWith(PART_PREFIX_REPO)).sort();
+  const allCards = [];
+  for (const name of partNames) {
+    const f = await repoGetFile(repo, name);
+    try {
+      const arr = JSON.parse(f.content);
+      if (Array.isArray(arr)) allCards.push(...arr);
+    } catch (e) { console.warn("[CAD] chunk inválido:", name, e); }
+  }
+  return {
+    cards: allCards,
+    deletedIds: (meta.deletedIds && typeof meta.deletedIds === "object") ? meta.deletedIds : {},
+    fileShas
+  };
+}
+
+// Push: divide em parts e salva cada um. Remove parts órfãos.
+async function repoUpdate(repo, cards, deletedIds) {
+  const existing = await repoListData(repo);
+  const chunks = chunkCardsBytes(cards, REPO_PART_BYTES);
+  const partName = (i) => `${PART_PREFIX_REPO}${String(i + 1).padStart(3, "0")}.json`;
+  const newNames = new Set([META_FILENAME_REPO, ...chunks.map((_, i) => partName(i))]);
+  const meta = {
+    deletedIds: deletedIds || {},
+    version: 4,
+    savedAt: nowIso(),
+    totalCards: cards.length,
+    totalParts: chunks.length
+  };
+  // Salva meta
+  await repoPutFile(repo, META_FILENAME_REPO, JSON.stringify(meta), existing[META_FILENAME_REPO]);
+  // Salva parts
+  for (let i = 0; i < chunks.length; i++) {
+    const name = partName(i);
+    await repoPutFile(repo, name, JSON.stringify(chunks[i]), existing[name]);
+  }
+  // Remove parts órfãos
+  for (const [name, sha] of Object.entries(existing)) {
+    if (!newNames.has(name) && name.startsWith(PART_PREFIX_REPO)) {
+      await repoDeleteFile(repo, name, sha);
+    }
+  }
   return true;
 }
 
@@ -583,6 +729,7 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
   const [ghToken, setGhTokenLocal] = useState(getGhToken());
   const [showGh, setShowGh] = useState(false);
   const [gistId, setGistIdLocal] = useState(getGistId());
+  const [repo, setRepoLocal] = useState(getRepo());
   const [syncBusy, setSyncBusy] = useState(false);
   const importRef = useRef();
 
@@ -643,16 +790,26 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
   }
 
   async function handleSyncNow() {
-    if (!getGhToken() || !getGistId()) { alert("Configure token e gist ID primeiro."); return; }
+    if (!getGhToken()) { alert("Configure o GitHub Token primeiro."); return; }
+    if (!getRepo() && !getGistId()) { alert("Configure o repositório de dados (recomendado) ou um Gist ID."); return; }
     setSyncBusy(true);
     setSyncState(s => ({ ...s, status: "syncing", error: "" }));
     try {
-      const remote = await gistFetch(getGistId());
+      let remote;
+      if (getRepo()) {
+        remote = await repoFetch(getRepo());
+      } else {
+        remote = await gistFetch(getGistId());
+      }
       const local = { cards, deletedIds: deletedIds || {} };
       const merged = mergeData(local, remote);
       setCards(merged.cards);
       setDeletedIds(merged.deletedIds);
-      await gistUpdate(getGistId(), merged.cards, merged.deletedIds);
+      if (getRepo()) {
+        await repoUpdate(getRepo(), merged.cards, merged.deletedIds);
+      } else {
+        await gistUpdate(getGistId(), merged.cards, merged.deletedIds);
+      }
       const ts = nowIso();
       saveLastSync(ts);
       setSyncState({ status: "ok", error: "", lastSync: ts });
@@ -660,6 +817,43 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
     } catch (e) {
       setSyncState({ status: "error", error: e.message, lastSync: getLastSync() });
       alert("Falha na sync: " + e.message);
+    }
+    setSyncBusy(false);
+  }
+
+  // Configura repo e migra dados (do gist ou local) pra Contents API
+  async function handleConfigureRepo() {
+    const r = (repo || "").trim();
+    if (!r.includes("/")) { alert('Use o formato "owner/repo" (ex: "estevaodocvanzo/caderno-data").'); return; }
+    if (!getGhToken()) { alert("Configure o GitHub Token primeiro (com escopo 'repo')."); return; }
+    setSyncBusy(true);
+    setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+    try {
+      await ensureRepo(r);
+      // Tenta puxar dados existentes do repo (se já configurado antes)
+      let remote = { cards: [], deletedIds: {}, fileShas: {} };
+      try { remote = await repoFetch(r); } catch (e) { /* repo vazio, ignora */ }
+      // Se repo vazio E tem gist configurado, migra dados do gist
+      if (remote.cards.length === 0 && getGistId()) {
+        try {
+          const fromGist = await gistFetch(getGistId());
+          remote = { cards: fromGist.cards, deletedIds: fromGist.deletedIds };
+          showToast(`Migrando ${fromGist.cards.length} cards do gist…`);
+        } catch (e) { /* sem gist, ignora */ }
+      }
+      const local = { cards, deletedIds: deletedIds || {} };
+      const merged = mergeData(local, remote);
+      setCards(merged.cards);
+      setDeletedIds(merged.deletedIds);
+      await repoUpdate(r, merged.cards, merged.deletedIds);
+      saveRepo(r);
+      const ts = nowIso();
+      saveLastSync(ts);
+      setSyncState({ status: "ok", error: "", lastSync: ts });
+      showToast(`Repo configurado! ${merged.cards.length} cards sincronizados.`);
+    } catch (e) {
+      setSyncState({ status: "error", error: e.message, lastSync: getLastSync() });
+      alert("Falha ao configurar repo: " + e.message);
     }
     setSyncBusy(false);
   }
@@ -761,6 +955,24 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
               <button style={{...S.btn(),width:"100%"}} onClick={handleSaveGh}>Salvar token/ID</button>
               <button style={{...S.btn("danger"),width:"100%",fontSize:12}} onClick={handleDisconnect}>Desconectar esta máquina</button>
             </div>
+          )}
+        </div>
+
+        <div style={S.card}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:COZY.text}}>
+            📂 Repositório de dados (recomendado)
+            {getRepo() && <span style={{marginLeft:8,fontSize:11,color:COZY.sage}}>● {getRepo()}</span>}
+          </p>
+          <p style={{fontSize:12,color:COZY.textMute,marginBottom:10,lineHeight:1.5}}>
+            Sync via repo privado (Contents API). <strong>Funciona em qualquer dispositivo</strong> incluindo iPhone, Android — sem o problema de CORS do Gist em arquivos grandes. Migra do gist automaticamente.
+          </p>
+          <p style={{...S.lbl, marginTop:6}}>Repositório (formato owner/repo)</p>
+          <input style={{...S.inp, marginBottom:10}} placeholder="ex.: estevaodocvanzo/caderno-data" value={repo} onChange={e => setRepoLocal(e.target.value)}/>
+          <button style={{...S.btn("primary"),width:"100%"}} disabled={syncBusy} onClick={handleConfigureRepo}>
+            {syncBusy ? "Configurando…" : (getRepo() === (repo||"").trim() && getRepo() ? "🔄 Re-sincronizar" : "🆕 Configurar repo (cria privado se não existir)")}
+          </button>
+          {getRepo() && (
+            <button style={{...S.btn("danger"),width:"100%",fontSize:12,marginTop:8}} onClick={() => { if (confirm("Desconectar do repo? Os dados no repo permanecem; só esta máquina para de sincronizar.")) { saveRepo(""); setRepoLocal(""); showToast("Repo desconectado."); } }}>Desconectar do repo</button>
           )}
         </div>
 
@@ -932,10 +1144,10 @@ function App() {
       setDeletedIds(local.deletedIds || {});
       setLoaded(true);
 
-      if (getGhToken() && getGistId()) {
+      if (getGhToken() && (getRepo() || getGistId())) {
         setSyncState(s => ({ ...s, status: "syncing", error: "" }));
         try {
-          const remote = await gistFetch(getGistId());
+          const remote = getRepo() ? await repoFetch(getRepo()) : await gistFetch(getGistId());
           const merged = mergeData(local, remote);
           setCards(merged.cards);
           setDeletedIds(merged.deletedIds);
@@ -956,13 +1168,17 @@ function App() {
     if (!loaded) return;
     saveData({ cards, deletedIds });
     if (firstSaveSkipRef.current) { firstSaveSkipRef.current = false; return; }
-    if (!getGhToken() || !getGistId()) return;
+    if (!getGhToken() || (!getRepo() && !getGistId())) return;
 
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
     pushTimerRef.current = setTimeout(async () => {
       setSyncState(s => ({ ...s, status: "syncing", error: "" }));
       try {
-        await gistUpdate(getGistId(), cards, deletedIds);
+        if (getRepo()) {
+          await repoUpdate(getRepo(), cards, deletedIds);
+        } else {
+          await gistUpdate(getGistId(), cards, deletedIds);
+        }
         const ts = nowIso();
         saveLastSync(ts);
         setSyncState({ status: "ok", error: "", lastSync: ts });
