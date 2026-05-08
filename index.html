@@ -66,6 +66,15 @@ function calcNextReview(card, grade) {
   return { interval, repetitions, easeFactor, nextReview:d.toISOString().split("T")[0] };
 }
 
+// Formata dias em label compacto (1d, 12d, 2m, 1.5a)
+function fmtInterval(days) {
+  const d = Math.max(1, Math.round(Number(days) || 1));
+  if (d < 60) return d + "d";
+  if (d < 365) return Math.round(d / 30) + "m";
+  const y = d / 365;
+  return (y >= 10 ? Math.round(y) : y.toFixed(1).replace(/\.0$/, "")) + "a";
+}
+
 const today = () => new Date().toISOString().split("T")[0];
 const nowIso = () => new Date().toISOString();
 const STORAGE_KEY = "residencia_v2";
@@ -2944,16 +2953,19 @@ Retorne SOMENTE um JSON (sem markdown):
                   <div style={{fontSize:10,color:COZY.textMute,letterSpacing:"0.14em",textTransform:"uppercase",textAlign:"center",marginBottom:10,fontWeight:600}}>como foi?</div>
                   <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6}}>
                     {[
-                      {label:"errei",sub:"<1d",tint:COZY.rose,soft:COZY.roseSoft,grade:0},
-                      {label:"difícil",sub:"2d",tint:COZY.butter,soft:COZY.butterSoft,grade:2},
-                      {label:"bom",sub:"5d",tint:COZY.sage,soft:COZY.sageSoft,grade:3},
-                      {label:"fácil",sub:"+12d",tint:COZY.peach,soft:COZY.peachSoft,grade:4},
-                    ].map(b => (
+                      {label:"errei",tint:COZY.rose,soft:COZY.roseSoft,grade:0},
+                      {label:"difícil",tint:COZY.butter,soft:COZY.butterSoft,grade:2},
+                      {label:"bom",tint:COZY.sage,soft:COZY.sageSoft,grade:3},
+                      {label:"fácil",tint:COZY.peach,soft:COZY.peachSoft,grade:4},
+                    ].map(b => {
+                      const next = calcNextReview(currentCard, b.grade);
+                      return (
                       <button key={b.label} onClick={() => gradeCard(b.grade)} style={{background:b.soft,border:`1px solid ${b.tint}40`,borderRadius:10,padding:"11px 4px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,fontFamily:COZY.font}}>
                         <span style={{color:b.tint,fontSize:12,fontWeight:600}}>{b.label}</span>
-                        <span style={{color:COZY.textMute,fontFamily:COZY.fontMono,fontSize:9}}>{b.sub}</span>
+                        <span style={{color:COZY.textMute,fontFamily:COZY.fontMono,fontSize:9}}>{fmtInterval(next.interval)}</span>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
