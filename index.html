@@ -620,13 +620,21 @@ function exportBackup(cards) {
 
 const stripHtml = s => (s||"").replace(/<[^>]+>/g,"");
 
-// Renderiza frente/verso de cards: respeita HTML existente (cards antigos) e converte markdown.
+// Renderiza frente/verso de cards: respeita HTML existente, decodifica entities (&gt;, &lt; etc) e converte markdown.
 function renderCardText(s) {
   if (!s) return "";
   const hasHtml = /<\w+[^>]*>/.test(s);
-  let out = hasHtml
-    ? s  // já tem tags HTML, não escapa pra preservar
-    : s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let out = s;
+  if (!hasHtml) {
+    // 1) Decodifica entities que possam ter vindo pré-escapadas em saves antigos ou da IA
+    out = out
+      .replace(/&gt;/g, ">").replace(/&lt;/g, "<")
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&");
+    // 2) Re-escapa caracteres especiais (segurança contra HTML inesperado)
+    out = out.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  // 3) Markdown
   out = out
     .replace(/\*\*([^*\n][^*]*?)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>")
