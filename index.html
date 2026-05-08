@@ -297,9 +297,10 @@ async function gistCreate(cards, deletedIds) {
 async function gistFetch(id) {
   const resp = await callGithub("GET", "/gists/" + encodeURIComponent(id));
   if (!resp.ok) {
-    if (resp.status === 404) throw new Error("Gist não encontrado — verifique o ID");
-    if (resp.status === 401) throw new Error("Token inválido ou sem permissão 'gist'");
-    throw new Error(resp.error || "Falha ao buscar gist");
+    const dbg = ` [s=${resp.status} id=${id?.slice(0,6)}.. tk=${(getGhToken()||'').slice(0,7)}.. via=${location.protocol==='file:'?'ext':'fetch'} msg=${(resp.error||'').slice(0,80)}]`;
+    if (resp.status === 404) throw new Error("Gist não encontrado" + dbg);
+    if (resp.status === 401) throw new Error("Token inválido ou sem permissão 'gist'" + dbg);
+    throw new Error((resp.error || "Falha ao buscar gist") + dbg);
   }
   const files = resp.data?.files || {};
 
