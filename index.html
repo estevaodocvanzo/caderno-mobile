@@ -589,6 +589,69 @@ function exportBackup(cards) {
 
 const stripHtml = s => (s||"").replace(/<[^>]+>/g,"");
 
+// Renderer de Markdown leve para mensagens do tutor.
+// Suporta: **bold**, *italic*, `code`, headers #/##/###, listas (- *) e numeradas, tabelas | a | b |, links, quebras.
+function renderMd(text) {
+  if (!text) return "";
+  text = String(text).replace(/---FLASHCARD---[\s\S]*?---FIM---/, "").trim();
+  let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  // Code blocks ``` ```
+  html = html.replace(/```([\s\S]*?)```/g, (_, code) =>
+    `<pre style="background:${COZY.bg};border:1px solid ${COZY.lineSoft};border-radius:6px;padding:8px 10px;margin:6px 0;overflow-x:auto;font-family:${COZY.fontMono};font-size:11px;line-height:1.5;">${code.trim()}</pre>`);
+
+  // Tabelas markdown
+  html = html.replace(/((?:^\s*\|[^\n]*\|\s*\n)+)/gm, (match) => {
+    const lines = match.trim().split("\n").map(l => l.trim());
+    if (lines.length < 2) return match;
+    const isSep = (l) => /^\|[\s\-:|]+\|$/.test(l);
+    let head = "", body = "", i = 0;
+    if (isSep(lines[1] || "")) {
+      const cells = lines[0].split("|").slice(1, -1).map(c => c.trim());
+      head = `<thead><tr>${cells.map(c => `<th style="border:1px solid ${COZY.line};padding:5px 9px;background:${COZY.bg2};text-align:left;font-weight:600;font-size:11px;">${c}</th>`).join("")}</tr></thead>`;
+      i = 2;
+    }
+    body = "<tbody>";
+    for (; i < lines.length; i++) {
+      if (isSep(lines[i])) continue;
+      const cells = lines[i].split("|").slice(1, -1).map(c => c.trim());
+      body += `<tr>${cells.map(c => `<td style="border:1px solid ${COZY.line};padding:5px 9px;font-size:12px;">${c}</td>`).join("")}</tr>`;
+    }
+    body += "</tbody>";
+    return `<table style="border-collapse:collapse;margin:8px 0;width:100%;">${head}${body}</table>`;
+  });
+
+  // Headers
+  html = html.replace(/^####\s+(.+)$/gm, `<div style="font-weight:700;font-size:12px;margin:8px 0 3px;color:${COZY.peach};">$1</div>`);
+  html = html.replace(/^###\s+(.+)$/gm, `<div style="font-weight:700;font-size:13px;margin:10px 0 4px;color:${COZY.peach};">$1</div>`);
+  html = html.replace(/^##\s+(.+)$/gm, `<div style="font-weight:700;font-size:14px;margin:12px 0 5px;color:${COZY.peach};">$1</div>`);
+  html = html.replace(/^#\s+(.+)$/gm, `<div style="font-weight:700;font-size:15px;margin:14px 0 6px;color:${COZY.peach};">$1</div>`);
+
+  // Listas bullet (- ou *)
+  html = html.replace(/((?:^[\-\*]\s+.+(?:\n|$))+)/gm, (m) => {
+    const items = m.trim().split("\n").map(l => l.replace(/^[\-\*]\s+/, ""));
+    return `<ul style="margin:5px 0;padding-left:20px;">${items.map(it => `<li style="margin-bottom:3px;">${it}</li>`).join("")}</ul>`;
+  });
+  // Listas numeradas
+  html = html.replace(/((?:^\d+\.\s+.+(?:\n|$))+)/gm, (m) => {
+    const items = m.trim().split("\n").map(l => l.replace(/^\d+\.\s+/, ""));
+    return `<ol style="margin:5px 0;padding-left:24px;">${items.map(it => `<li style="margin-bottom:3px;">${it}</li>`).join("")}</ol>`;
+  });
+
+  // Inline: bold, italic, code, links
+  html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>");
+  html = html.replace(/`([^`\n]+)`/g, `<code style="background:${COZY.bg};padding:1px 5px;border-radius:3px;font-family:${COZY.fontMono};font-size:0.9em;">$1</code>`);
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, `<a href="$2" target="_blank" style="color:${COZY.peach};text-decoration:underline;">$1</a>`);
+
+  // Quebras de linha
+  html = html.replace(/\n{2,}/g, "<br><br>").replace(/\n/g, "<br>");
+  // Limpa <br> em volta de blocos
+  html = html.replace(/<br>(<(?:table|ul|ol|div|pre|h\d))/g, "$1");
+  html = html.replace(/(<\/(?:table|ul|ol|div|pre|h\d)>)<br>/g, "$1");
+  return html;
+}
+
 function syncBadge(state, configured) {
   if (!configured) return { icon: "○", label: "sem sync", title: "Configure a sync nas Configurações" };
   if (state.status === "syncing") return { icon: "⟳", label: "sincronizando…", title: "Sincronizando com GitHub Gist" };
@@ -1019,7 +1082,7 @@ function FlashcardEditModal({card, onSave, onClose}) {
     try {
       const data = await callAnthropic({
         model: "claude-sonnet-4-5",
-        max_tokens: 2000,
+        max_tokens: 3500,
         system: `Tutor médico melhorando flashcard.\nFRENTE: ${stripHtml(frente.html)}\nVERSO: ${stripHtml(verso.html)}\nAo sugerir novo flashcard inclua:\n---FLASHCARD---\nFRENTE: <texto>\nVERSO: <texto>\n---FIM---`,
         messages: history,
       });
@@ -1500,7 +1563,7 @@ Retorne SOMENTE um JSON array (sem markdown):
     try {
       const resp = await callAnthropic({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 2000,
+        max_tokens: 3500,
         messages: [{ role: "user", content: prompt }]
       });
       const txt = (resp.content || []).map(i => i.text || "").join("");
@@ -1701,7 +1764,7 @@ Retorne SOMENTE um JSON array (sem markdown):
       content.push({type:"text", text:`Crie flashcard baseado nesta questão e comentário do professor. Retorne SOMENTE JSON:\n{"frente":"pergunta objetiva 1-2 frases","verso":"resposta com conceito-chave e raciocínio"}\nQuestão: ${q.enunciado}\nAlternativas: ${q.alternativas?.join(" ")}\nCorreta: ${q.correta}${erroTxt}${comentTxt}`});
       const data = await callAnthropic({
         model: "claude-sonnet-4-5",
-        max_tokens: 2000,
+        max_tokens: 3500,
         messages: [{role:"user", content}],
       });
       const text = data.content?.map(i => i.text || "").join("") || "";
@@ -1895,7 +1958,9 @@ Retorne SOMENTE um JSON array (sem markdown):
             {chatMessages.map((m, i) => (
               <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"88%"}}>
                 <div style={{background: m.role==="user"?"#e8b69a":"#243530", border: m.role==="assistant"?"1px solid #3d5048":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#f0e6d2", whiteSpace:"pre-wrap"}}>
-                  {m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
+                  {m.role === "assistant"
+                    ? <div dangerouslySetInnerHTML={{__html: renderMd(m.content)}}/>
+                    : m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
                 </div>
               </div>
             ))}
@@ -1919,8 +1984,15 @@ Retorne SOMENTE um JSON array (sem markdown):
             <div ref={chatEndRef}/>
           </div>
           <div style={{padding:"10px 12px",borderTop:"1px solid #324239",display:"flex",gap:8}}>
-            <input style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px"}} placeholder="Digite sua dúvida…" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key==="Enter" && !e.shiftKey && sendChat()}/>
-            <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0}} onClick={sendChat} disabled={chatLoading||!chatInput.trim()}>↑</button>
+            <textarea
+              style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px",minHeight:38,maxHeight:160,resize:"none",overflow:"auto",lineHeight:1.45}}
+              placeholder="Digite sua dúvida…"
+              value={chatInput}
+              onChange={e => { setChatInput(e.target.value); e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px"; }}
+              onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
+              rows={1}
+            />
+            <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0,alignSelf:"flex-end"}} onClick={sendChat} disabled={chatLoading||!chatInput.trim()}>↑</button>
           </div>
         </div>
       )}
