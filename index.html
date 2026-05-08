@@ -4,14 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Caderno de Erros — Residência Médica</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
-  html, body { margin: 0; padding: 0; background: #0f1117; }
-  body { font-family: system-ui, -apple-system, sans-serif; }
+  html, body { margin: 0; padding: 0; background: #1d2a26; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
   * { box-sizing: border-box; }
-  [contenteditable]:empty:before { content: attr(data-placeholder); color: #4a5568; pointer-events: none; }
+  [contenteditable]:empty:before { content: attr(data-placeholder); color: #5e6f66; pointer-events: none; }
+  /* Scrollbar discreta no tema cozy */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #1d2a26; }
+  ::-webkit-scrollbar-thumb { background: #324239; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3d5048; }
 </style>
 </head>
 <body>
@@ -39,6 +47,58 @@ function calcNextReview(card, grade) {
 const today = () => new Date().toISOString().split("T")[0];
 const nowIso = () => new Date().toISOString();
 const STORAGE_KEY = "residencia_v2";
+
+// ============================================================
+// Tema "cozy" — verde profundo de biblioteca + acento peach
+// ============================================================
+const COZY = {
+  bg: '#1d2a26', bg2: '#243530', surface: '#2c3f38', surfaceHi: '#36493f',
+  line: '#3d5048', lineSoft: '#324239',
+  text: '#f0e6d2', textSoft: '#c9bfa6', textMute: '#8d9890', textFaint: '#5e6f66',
+  peach: '#e8b69a', peachSoft: '#3a3128',
+  butter: '#e8d29a', butterSoft: '#3a342a',
+  rose: '#d9a3a3', roseSoft: '#3a2c2c',
+  sage: '#a8c4a2', sageSoft: '#2b3a2c',
+  sky: '#a8bdc4', skySoft: '#2a3537',
+  font: "'Inter', system-ui, sans-serif",
+  fontDisplay: "'Fraunces', Georgia, serif",
+  fontMono: "'JetBrains Mono', ui-monospace, monospace",
+  fontHand: "'Caveat', cursive",
+};
+
+// Tinge de área usado em headers, badges e bordas verticais
+function areaTint(area) {
+  return ({
+    'Clínica Médica': COZY.rose,
+    'Cirurgia': COZY.butter,
+    'GO': COZY.peach,
+    'Pediatria': COZY.sage,
+    'Neurologia': COZY.sky,
+    'Preventiva': '#c4b59a',
+    'Psiquiatria': '#bcaecc',
+    'Ortopedia': COZY.butter,
+    'MedCof': COZY.peach,
+  })[area] || COZY.textSoft;
+}
+
+// Brand mark — cérebro estilizado em SVG. Sem dependência externa.
+function BrandMark({ size = 64, accent = COZY.peach, ink = COZY.bg, bg = null }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+      {bg && <rect width="64" height="64" rx="14" fill={bg} />}
+      <g transform="translate(32 32)">
+        <circle cx="-7" cy="-2" r="13" fill={accent} />
+        <circle cx="7" cy="-2" r="13" fill={accent} />
+        <ellipse cx="0" cy="9" rx="16" ry="9" fill={accent} />
+        <path d="M0 -15 Q-1 -7 0 -1 Q1 5 0 12 Q-1 15 0 18" stroke={ink} strokeWidth="1.6" fill="none" strokeLinecap="round" opacity="0.55"/>
+        <path d="M-15 -3 Q-10 -7 -5 -4" stroke={ink} strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.4"/>
+        <path d="M5 -4 Q10 -7 15 -3" stroke={ink} strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.4"/>
+        <path d="M-13 6 Q-9 3 -4 6" stroke={ink} strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.4"/>
+        <path d="M4 6 Q9 3 13 6" stroke={ink} strokeWidth="1.4" fill="none" strokeLinecap="round" opacity="0.4"/>
+      </g>
+    </svg>
+  );
+}
 
 // ============================================================
 // Matching fuzzy para import de CofCards do MedCof
@@ -276,14 +336,22 @@ function syncBadge(state, configured) {
 }
 
 const S = {
-  app:  {minHeight:"100vh",background:"#0f1117",color:"#e2e8f0",fontFamily:"system-ui,sans-serif",paddingBottom:80},
-  nav:  {display:"flex",gap:2,padding:"12px 12px 0",borderBottom:"1px solid #1e2535",overflowX:"auto"},
-  navB: a => ({background:a?"#1a1f2e":"transparent",border:"none",borderBottom:a?"2px solid #63b3ed":"2px solid transparent",color:a?"#63b3ed":"#4a5568",padding:"8px 12px",cursor:"pointer",fontSize:13,fontWeight:500,borderRadius:"4px 4px 0 0",whiteSpace:"nowrap"}),
-  card: {background:"#1a1f2e",border:"1px solid #1e2535",borderRadius:12,padding:"16px 18px",marginBottom:12},
-  btn:  v => ({background:v==="primary"?"#2b6cb0":v==="success"?"#276749":v==="danger"?"#9b2c2c":v==="warn"?"#744210":"#2d3748",color:"#e2e8f0",border:"none",borderRadius:8,padding:"9px 18px",cursor:"pointer",fontSize:13,fontWeight:500}),
-  inp:  {background:"#131720",border:"1px solid #2d3748",borderRadius:8,padding:"9px 12px",color:"#e2e8f0",fontSize:14,width:"100%",boxSizing:"border-box"},
-  lbl:  {fontSize:12,color:"#718096",marginBottom:4,display:"block"},
-  bdg:  c => ({background:c==="blue"?"#1e3a5f":c==="green"?"#1c4532":c==="purple"?"#322659":"#2d3748",color:c==="blue"?"#90cdf4":c==="green"?"#9ae6b4":c==="purple"?"#d6bcfa":"#a0aec0",fontSize:11,padding:"2px 8px",borderRadius:999,fontWeight:500}),
+  app:  {minHeight:"100vh",background:COZY.bg,color:COZY.text,fontFamily:COZY.font,paddingBottom:80},
+  nav:  {display:"flex",gap:2,padding:"12px 12px 0",borderBottom:`1px solid ${COZY.lineSoft}`,overflowX:"auto"},
+  navB: a => ({background:a?COZY.bg2:"transparent",border:"none",borderBottom:a?`2px solid ${COZY.peach}`:"2px solid transparent",color:a?COZY.peach:COZY.textMute,padding:"8px 12px",cursor:"pointer",fontSize:13,fontWeight:500,borderRadius:"4px 4px 0 0",whiteSpace:"nowrap",fontFamily:COZY.font,letterSpacing:"0.02em"}),
+  card: {background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:12,padding:"16px 18px",marginBottom:12,boxShadow:"inset 0 1px 0 rgba(255,255,255,0.03)"},
+  btn:  v => ({
+    background: v==="primary"?COZY.peach : v==="success"?COZY.sage : v==="danger"?COZY.rose : v==="warn"?COZY.butter : COZY.surfaceHi,
+    color: (v==="primary"||v==="success"||v==="danger"||v==="warn") ? COZY.bg : COZY.text,
+    border:"none",borderRadius:8,padding:"9px 18px",cursor:"pointer",fontSize:13,fontWeight:600,fontFamily:COZY.font,letterSpacing:"0.02em"
+  }),
+  inp:  {background:COZY.bg2,border:`1px solid ${COZY.line}`,borderRadius:8,padding:"9px 12px",color:COZY.text,fontSize:14,width:"100%",boxSizing:"border-box",fontFamily:COZY.font},
+  lbl:  {fontSize:11,color:COZY.textMute,marginBottom:4,display:"block",letterSpacing:"0.06em",textTransform:"uppercase",fontWeight:600},
+  bdg:  c => ({
+    background: c==="blue"?COZY.skySoft : c==="green"?COZY.sageSoft : c==="purple"?COZY.peachSoft : c==="rose"?COZY.roseSoft : c==="butter"?COZY.butterSoft : COZY.surface,
+    color:      c==="blue"?COZY.sky    : c==="green"?COZY.sage    : c==="purple"?COZY.peach    : c==="rose"?COZY.rose    : c==="butter"?COZY.butter    : COZY.textSoft,
+    fontSize:11,padding:"2px 8px",borderRadius:999,fontWeight:600,letterSpacing:"0.04em"
+  }),
 };
 
 function ExamHeader({src, onRemove, onZoom}) {
@@ -291,7 +359,7 @@ function ExamHeader({src, onRemove, onZoom}) {
   return (
     <div style={{position:"relative",marginBottom:12,borderRadius:"10px 10px 0 0",overflow:"hidden",background:"#0a0e17",textAlign:"center"}}>
       <img src={src} onClick={() => onZoom && onZoom(src)} style={{maxWidth:"100%",maxHeight:220,display:"block",margin:"0 auto",objectFit:"contain",cursor:"zoom-in"}} alt="exame"/>
-      {onRemove && <button onClick={e => {e.stopPropagation(); onRemove();}} style={{position:"absolute",top:6,right:6,background:"#9b2c2ccc",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
+      {onRemove && <button onClick={e => {e.stopPropagation(); onRemove();}} style={{position:"absolute",top:6,right:6,background:"#d9a3a3cc",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
     </div>
   );
 }
@@ -328,23 +396,23 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
     r.readAsDataURL(f);
     e.target.value = "";
   }
-  const bS = () => ({background:"#2d3748",border:"none",color:"#e2e8f0",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
+  const bS = () => ({background:"#3d5048",border:"none",color:"#f0e6d2",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
   return (
-    <div style={{border:"1px solid #2d3748",borderRadius:8,background:"#131720",overflow:"hidden"}}>
-      <div style={{display:"flex",gap:5,padding:"6px 8px",borderBottom:"1px solid #1e2535",flexWrap:"wrap",alignItems:"center"}}>
+    <div style={{border:"1px solid #3d5048",borderRadius:8,background:"#243530",overflow:"hidden"}}>
+      <div style={{display:"flex",gap:5,padding:"6px 8px",borderBottom:"1px solid #324239",flexWrap:"wrap",alignItems:"center"}}>
         <button style={bS()} onMouseDown={e => {e.preventDefault(); execCmd("bold");}}><b>N</b></button>
         <button style={{...bS(),background:"#7c6a00",color:"#ffe066"}} onMouseDown={e => {e.preventDefault(); execCmd("hiliteColor","#ffe066");}}>▐ mk</button>
-        <button style={{...bS(),fontSize:11,color:"#a0aec0"}} onMouseDown={e => {e.preventDefault(); execCmd("removeFormat");}}>✕ fmt</button>
-        <div style={{width:1,height:16,background:"#2d3748",margin:"0 2px"}}/>
+        <button style={{...bS(),fontSize:11,color:"#c9bfa6"}} onMouseDown={e => {e.preventDefault(); execCmd("removeFormat");}}>✕ fmt</button>
+        <div style={{width:1,height:16,background:"#3d5048",margin:"0 2px"}}/>
         <button style={{...bS(),fontSize:11}} onMouseDown={e => {e.preventDefault(); fileRef.current.click();}}>📎 img</button>
         <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
       </div>
       <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={sync} onPaste={handlePaste} data-placeholder={placeholder}
-        style={{minHeight, padding:"9px 12px", color:"#e2e8f0", fontSize:14, outline:"none", lineHeight:1.6, wordBreak:"break-word", fontFamily:"system-ui,sans-serif", fontWeight:400}}/>
+        style={{minHeight, padding:"9px 12px", color:"#f0e6d2", fontSize:14, outline:"none", lineHeight:1.6, wordBreak:"break-word", fontFamily:"system-ui,sans-serif", fontWeight:400}}/>
       {value?.img && (
         <div style={{position:"relative",padding:"0 10px 10px"}}>
           <img src={value.img} style={{maxWidth:"100%",borderRadius:6,display:"block"}} alt="anexo"/>
-          <button style={{position:"absolute",top:4,right:14,background:"#9b2c2c",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => onChange({...value, img: null})}>✕</button>
+          <button style={{position:"absolute",top:4,right:14,background:"#d9a3a3",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => onChange({...value, img: null})}>✕</button>
         </div>
       )}
     </div>
@@ -369,21 +437,21 @@ function ComentarioSection({form, setForm}) {
   const imgs = form.comentarioImgs || [];
   return (
     <div id="comentario-section" style={{marginBottom:14}}>
-      <label style={{...S.lbl, marginBottom:6}}>💬 Comentário do professor <span style={{color:"#4a5568",fontWeight:400}}>(opcional — melhora o flashcard)</span></label>
+      <label style={{...S.lbl, marginBottom:6}}>💬 Comentário do professor <span style={{color:"#5e6f66",fontWeight:400}}>(opcional — melhora o flashcard)</span></label>
       <textarea style={{...S.inp, minHeight:60, resize:"vertical", marginBottom:8}} placeholder="Cole ou digite o comentário…" value={form.comentario||""} onChange={e => setForm(f => ({...f, comentario: e.target.value}))} onPaste={handlePaste}/>
       {imgs.length > 0 && (
         <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
           {imgs.map((src, i) => (
             <div key={i} style={{position:"relative",display:"inline-block"}}>
-              <img src={src} style={{height:72,borderRadius:6,border:"1px solid #2d3748",display:"block"}} alt={`c-${i}`}/>
-              <button onClick={() => removeImg(i)} style={{position:"absolute",top:-6,right:-6,background:"#9b2c2c",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+              <img src={src} style={{height:72,borderRadius:6,border:"1px solid #3d5048",display:"block"}} alt={`c-${i}`}/>
+              <button onClick={() => removeImg(i)} style={{position:"absolute",top:-6,right:-6,background:"#d9a3a3",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
             </div>
           ))}
         </div>
       )}
       <button onClick={() => fileRef.current.click()} style={{...S.btn(), fontSize:12, padding:"5px 12px"}}>📎 {imgs.length > 0 ? "Adicionar mais" : "Print do comentário"}</button>
       <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
-      <p style={{fontSize:11,color:"#4a5568",margin:"4px 0 0"}}>ou cole com Ctrl+V na área de texto</p>
+      <p style={{fontSize:11,color:"#5e6f66",margin:"4px 0 0"}}>ou cole com Ctrl+V na área de texto</p>
     </div>
   );
 }
@@ -510,17 +578,17 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
 
   return (
     <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#1a1f2e",border:"1px solid #2d3748",borderRadius:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",padding:20}}>
+      <div style={{background:"#2c3f38",border:"1px solid #3d5048",borderRadius:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",padding:20}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <p style={{fontWeight:600,fontSize:16,color:"#90cdf4",margin:0}}>⚙️ Configurações</p>
-          <button style={{background:"transparent",border:"none",color:"#a0aec0",fontSize:20,cursor:"pointer"}} onClick={onClose}>✕</button>
+          <p style={{fontWeight:600,fontSize:16,color:"#a8bdc4",margin:0}}>⚙️ Configurações</p>
+          <button style={{background:"transparent",border:"none",color:"#c9bfa6",fontSize:20,cursor:"pointer"}} onClick={onClose}>✕</button>
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>🔑 Chave da API Anthropic</p>
-          <p style={{fontSize:12,color:"#718096",marginBottom:10,lineHeight:1.5}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>🔑 Chave da API Anthropic</p>
+          <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
             Necessária para extrair questões de imagens, gerar flashcards e usar o tutor.
-            Crie em <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:"#63b3ed"}}>console.anthropic.com/settings/keys</a>.
+            Crie em <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:"#e8b69a"}}>console.anthropic.com/settings/keys</a>.
             Sua chave fica salva SÓ neste navegador.
           </p>
           <div style={{display:"flex",gap:6,marginBottom:8}}>
@@ -531,16 +599,16 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>
             ☁️ Sincronização entre computadores (GitHub Gist)
-            {syncState?.status === "ok" && <span style={{marginLeft:8,fontSize:11,color:"#9ae6b4"}}>● conectado</span>}
+            {syncState?.status === "ok" && <span style={{marginLeft:8,fontSize:11,color:"#a8c4a2"}}>● conectado</span>}
             {syncState?.status === "error" && <span style={{marginLeft:8,fontSize:11,color:"#feb2b2"}}>● erro</span>}
-            {syncState?.status === "syncing" && <span style={{marginLeft:8,fontSize:11,color:"#90cdf4"}}>● sincronizando…</span>}
+            {syncState?.status === "syncing" && <span style={{marginLeft:8,fontSize:11,color:"#a8bdc4"}}>● sincronizando…</span>}
           </p>
-          <p style={{fontSize:12,color:"#718096",marginBottom:10,lineHeight:1.5}}>
+          <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
             Cria um gist privado na sua conta GitHub e mantém seus cards sincronizados entre computadores.
-            Gere um token (escopo <code style={{background:"#131720",padding:"1px 4px",borderRadius:3}}>gist</code>) em{" "}
-            <a href="https://github.com/settings/tokens?type=beta" target="_blank" style={{color:"#63b3ed"}}>github.com/settings/tokens</a>.
+            Gere um token (escopo <code style={{background:"#243530",padding:"1px 4px",borderRadius:3}}>gist</code>) em{" "}
+            <a href="https://github.com/settings/tokens?type=beta" target="_blank" style={{color:"#e8b69a"}}>github.com/settings/tokens</a>.
           </p>
           <p style={{...S.lbl, marginTop:6}}>Personal Access Token</p>
           <div style={{display:"flex",gap:6,marginBottom:8}}>
@@ -561,9 +629,9 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             </div>
           ) : (
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{background:"#131720",padding:"8px 10px",borderRadius:6,fontSize:11,color:"#a0aec0",wordBreak:"break-all"}}>
-                <strong style={{color:"#90cdf4"}}>Gist ID:</strong> {getGistId()}<br/>
-                {syncState?.lastSync && <><strong style={{color:"#90cdf4"}}>Última sync:</strong> {new Date(syncState.lastSync).toLocaleString("pt-BR")}</>}
+              <div style={{background:"#243530",padding:"8px 10px",borderRadius:6,fontSize:11,color:"#c9bfa6",wordBreak:"break-all"}}>
+                <strong style={{color:"#a8bdc4"}}>Gist ID:</strong> {getGistId()}<br/>
+                {syncState?.lastSync && <><strong style={{color:"#a8bdc4"}}>Última sync:</strong> {new Date(syncState.lastSync).toLocaleString("pt-BR")}</>}
                 {syncState?.error && <><br/><strong style={{color:"#feb2b2"}}>Erro:</strong> {syncState.error}</>}
               </div>
               <button style={{...S.btn("primary"),width:"100%"}} disabled={syncBusy} onClick={handleSyncNow}>
@@ -576,9 +644,9 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>💾 Backup dos dados</p>
-          <p style={{fontSize:12,color:"#718096",marginBottom:10,lineHeight:1.5}}>
-            Total: <strong style={{color:"#90cdf4"}}>{cards.length}</strong> itens. Recomendado exportar 1x por semana.
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>💾 Backup dos dados</p>
+          <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
+            Total: <strong style={{color:"#a8bdc4"}}>{cards.length}</strong> itens. Recomendado exportar 1x por semana.
             Os dados ficam salvos no navegador — limpe-o e você perde tudo se não tiver backup!
           </p>
           <div style={{display:"flex",gap:8,flexDirection:"column"}}>
@@ -589,10 +657,10 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={{...S.card,marginBottom:0}}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#e2e8f0"}}>ℹ️ Sobre</p>
-          <p style={{fontSize:12,color:"#718096",margin:0,lineHeight:1.6}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>ℹ️ Sobre</p>
+          <p style={{fontSize:12,color:"#8d9890",margin:0,lineHeight:1.6}}>
             Caderno de Erros — sistema de revisão espaçada com IA.<br/>
-            Para continuar melhorando este app com IA, abra o Cowork e peça para ler <code style={{background:"#131720",padding:"1px 5px",borderRadius:4}}>codigo-fonte.jsx</code>.
+            Para continuar melhorando este app com IA, abra o Cowork e peça para ler <code style={{background:"#243530",padding:"1px 5px",borderRadius:4}}>codigo-fonte.jsx</code>.
           </p>
         </div>
       </div>
@@ -638,9 +706,9 @@ function FlashcardEditModal({card, onSave, onClose}) {
 
   return (
     <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#1a1f2e",border:"1px solid #2d3748",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #000a",overflow:"hidden"}}>
-        <div style={{padding:"14px 18px",borderBottom:"1px solid #1e2535",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-          <p style={{fontWeight:600,fontSize:15,color:"#90cdf4",margin:0}}>✏️ Editar flashcard</p>
+      <div style={{background:"#2c3f38",border:"1px solid #3d5048",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #000a",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid #324239",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <p style={{fontWeight:600,fontSize:15,color:"#a8bdc4",margin:0}}>✏️ Editar flashcard</p>
           <button style={{...S.btn(chatOpen?"":"primary"),fontSize:12,padding:"6px 12px"}} onClick={() => setChatOpen(o => !o)}>{chatOpen?"← Editor":"💬 Tutor"}</button>
         </div>
         {!chatOpen ? (
@@ -657,29 +725,29 @@ function FlashcardEditModal({card, onSave, onClose}) {
         ) : (
           <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
             <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-              {msgs.length === 0 && <p style={{color:"#4a5568",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7}}>Explique o que não ficou bom no flashcard.</p>}
+              {msgs.length === 0 && <p style={{color:"#5e6f66",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7}}>Explique o que não ficou bom no flashcard.</p>}
               {msgs.map((m, i) => (
                 <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"90%"}}>
-                  <div style={{background: m.role==="user"?"#2b6cb0":"#131720", border: m.role==="assistant"?"1px solid #2d3748":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#e2e8f0", whiteSpace:"pre-wrap"}}>
+                  <div style={{background: m.role==="user"?"#e8b69a":"#243530", border: m.role==="assistant"?"1px solid #3d5048":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#f0e6d2", whiteSpace:"pre-wrap"}}>
                     {m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
                   </div>
                 </div>
               ))}
               {pending && (
-                <div style={{background:"#1c4532",border:"1px solid #38a169",borderRadius:12,padding:"10px 14px"}}>
-                  <p style={{fontSize:12,color:"#9ae6b4",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
-                  <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 2px"}}><strong>Frente:</strong> {pending.frente}</p>
-                  <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
+                <div style={{background:"#2b3a2c",border:"1px solid #a8c4a2",borderRadius:12,padding:"10px 14px"}}>
+                  <p style={{fontSize:12,color:"#a8c4a2",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                  <p style={{fontSize:12,color:"#f0e6d2",margin:"0 0 2px"}}><strong>Frente:</strong> {pending.frente}</p>
+                  <p style={{fontSize:12,color:"#f0e6d2",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
                   <div style={{display:"flex",gap:8}}>
                     <button style={{...S.btn("success"),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => {setFrente(f => ({...f, html: pending.frente})); setVerso(v => ({...v, html: pending.verso})); setPending(null); setChatOpen(false);}}>Aplicar</button>
                     <button style={{...S.btn(),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => setPending(null)}>Descartar</button>
                   </div>
                 </div>
               )}
-              {loading && <div style={{alignSelf:"flex-start",background:"#131720",border:"1px solid #2d3748",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#718096"}}>Pensando…</div>}
+              {loading && <div style={{alignSelf:"flex-start",background:"#243530",border:"1px solid #3d5048",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#8d9890"}}>Pensando…</div>}
               <div ref={endRef}/>
             </div>
-            <div style={{padding:"10px 12px",borderTop:"1px solid #1e2535",display:"flex",gap:8,flexShrink:0}}>
+            <div style={{padding:"10px 12px",borderTop:"1px solid #324239",display:"flex",gap:8,flexShrink:0}}>
               <input style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px"}} placeholder="Explique o problema…" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key==="Enter" && !e.shiftKey && sendMsg()}/>
               <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0}} onClick={sendMsg} disabled={loading||!input.trim()}>↑</button>
             </div>
@@ -693,6 +761,12 @@ function FlashcardEditModal({card, onSave, onClose}) {
 function App() {
   const [lightbox, setLightbox] = useState(null);
   const [view, setView] = useState("home");
+  const [isMobile, setIsMobile] = useState(typeof window !== "undefined" ? window.innerWidth < 700 : false);
+  useEffect(() => {
+    const onR = () => setIsMobile(window.innerWidth < 700);
+    window.addEventListener("resize", onR);
+    return () => window.removeEventListener("resize", onR);
+  }, []);
   const [cards, setCards] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [reviewQueue, setReviewQueue] = useState([]);
@@ -1311,56 +1385,58 @@ function App() {
   const currentCard = reviewQueue[reviewIdx];
   const isActive = v => view === v || (view === "reviewDone" && v === "review_start") || (view === "review" && v === "review_start");
 
-  if (!loaded) return <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:"#718096"}}>Carregando…</p></div>;
+  if (!loaded) return <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:"#8d9890"}}>Carregando…</p></div>;
 
   return (
     <div style={S.app}>
-      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#276749",color:"#fff",padding:"8px 22px",borderRadius:8,fontSize:13,zIndex:999,fontWeight:500,boxShadow:"0 4px 12px #0006"}}>{toast}</div>}
+      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#a8c4a2",color:"#fff",padding:"8px 22px",borderRadius:8,fontSize:13,zIndex:999,fontWeight:500,boxShadow:"0 4px 12px #0006"}}>{toast}</div>}
       {lightbox && (
         <div onClick={() => setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:992,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
           <img src={lightbox} style={{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",borderRadius:8}} alt="zoom"/>
-          <button onClick={() => setLightbox(null)} style={{position:"absolute",top:16,right:16,background:"#2d3748",border:"none",color:"#e2e8f0",borderRadius:"50%",width:36,height:36,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+          <button onClick={() => setLightbox(null)} style={{position:"absolute",top:16,right:16,background:"#3d5048",border:"none",color:"#f0e6d2",borderRadius:"50%",width:36,height:36,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         </div>
       )}
       {editingCard && <FlashcardEditModal card={editingCard} onClose={() => setEditingCard(null)} onSave={fields => saveEditedCard(editingCard.id, fields)}/>}
       {configOpen && <ConfigModal onClose={() => setConfigOpen(false)} cards={cards} setCards={setCards} showToast={showToast} deletedIds={deletedIds} setDeletedIds={setDeletedIds} syncState={syncState} setSyncState={setSyncState}/>}
 
-      <button onClick={() => {
-        if (view === "add" && form.enunciado) openTutorWithContext({...form});
-        else if (view === "review" && currentCard) openTutorWithContext({...currentCard});
-        else setChatOpen(o => !o);
-      }} style={{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:"#2b6cb0",border:"none",color:"#fff",fontSize:22,cursor:"pointer",zIndex:900,boxShadow:"0 4px 16px #0008",display:"flex",alignItems:"center",justifyContent:"center"}}>
-        {chatOpen?"✕":"💬"}
-      </button>
+      {!isMobile && (
+        <button onClick={() => {
+          if (view === "add" && form.enunciado) openTutorWithContext({...form});
+          else if (view === "review" && currentCard) openTutorWithContext({...currentCard});
+          else setChatOpen(o => !o);
+        }} style={{position:"fixed",bottom:24,right:20,width:52,height:52,borderRadius:"50%",background:COZY.peach,border:"none",color:COZY.bg,fontSize:22,cursor:"pointer",zIndex:900,boxShadow:"0 4px 16px #0008",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {chatOpen?"✕":"💬"}
+        </button>
+      )}
 
       {chatOpen && (
-        <div style={{position:"fixed",bottom:86,right:16,width:"min(360px, calc(100vw - 32px))",height:440,background:"#1a1f2e",border:"1px solid #2d3748",borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009"}}>
-          <div style={{padding:"12px 16px",borderBottom:"1px solid #2d3748",fontWeight:500,fontSize:14,color:"#90cdf4"}}>
+        <div style={{position:"fixed",bottom:86,right:16,width:"min(360px, calc(100vw - 32px))",height:440,background:"#2c3f38",border:"1px solid #3d5048",borderRadius:16,zIndex:899,display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #0009"}}>
+          <div style={{padding:"12px 16px",borderBottom:"1px solid #3d5048",fontWeight:500,fontSize:14,color:"#a8bdc4"}}>
             🩺 Tutor {chatContext ? (chatContext.tipo==="flashcard" ? "— flashcard" : chatContext.enunciado ? "— questão" : "") : ""}
           </div>
           {chatContext && (chatContext.enunciado || chatContext.frente) && (
-            <div style={{borderBottom:"1px solid #2d3748"}}>
+            <div style={{borderBottom:"1px solid #3d5048"}}>
               {chatContext.exameCrop && <img src={chatContext.exameCrop} onClick={() => setLightbox(chatContext.exameCrop)} style={{width:"100%",maxHeight:100,objectFit:"cover",display:"block",cursor:"zoom-in"}} alt="exame"/>}
-              <div style={{padding:"7px 14px",background:"#1c3a5f",fontSize:12,color:"#90cdf4",lineHeight:1.5}}>
+              <div style={{padding:"7px 14px",background:COZY.bg2,fontSize:12,color:"#a8bdc4",lineHeight:1.5}}>
                 {chatContext.area}{chatContext.tema?` · ${chatContext.tema}`:""}<br/>
-                <span style={{color:"#718096"}}>{(chatContext.tipo==="flashcard" ? stripHtml(chatContext.frente) : chatContext.enunciado||"").slice(0,70)}…</span>
+                <span style={{color:"#8d9890"}}>{(chatContext.tipo==="flashcard" ? stripHtml(chatContext.frente) : chatContext.enunciado||"").slice(0,70)}…</span>
               </div>
             </div>
           )}
           <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-            {chatMessages.length === 0 && <p style={{color:"#4a5568",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7,padding:"0 8px"}}>{chatContext?.enunciado ? "Questão carregada! Pergunte sobre alternativas, mecanismos, ou peça um flashcard." : chatContext?.frente ? "Flashcard carregado! Peça melhorias ou tire dúvidas." : "Pergunte sobre clínica, fármacos, fisiologia…"}</p>}
+            {chatMessages.length === 0 && <p style={{color:"#5e6f66",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7,padding:"0 8px"}}>{chatContext?.enunciado ? "Questão carregada! Pergunte sobre alternativas, mecanismos, ou peça um flashcard." : chatContext?.frente ? "Flashcard carregado! Peça melhorias ou tire dúvidas." : "Pergunte sobre clínica, fármacos, fisiologia…"}</p>}
             {chatMessages.map((m, i) => (
               <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"88%"}}>
-                <div style={{background: m.role==="user"?"#2b6cb0":"#131720", border: m.role==="assistant"?"1px solid #2d3748":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#e2e8f0", whiteSpace:"pre-wrap"}}>
+                <div style={{background: m.role==="user"?"#e8b69a":"#243530", border: m.role==="assistant"?"1px solid #3d5048":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#f0e6d2", whiteSpace:"pre-wrap"}}>
                   {m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
                 </div>
               </div>
             ))}
             {pendingFlashcard && (
-              <div style={{background:"#1c4532",border:"1px solid #38a169",borderRadius:12,padding:"10px 14px"}}>
-                <p style={{fontSize:12,color:"#9ae6b4",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
-                <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 2px"}}><strong>Frente:</strong> {pendingFlashcard.frente}</p>
-                <p style={{fontSize:12,color:"#e2e8f0",margin:"0 0 10px"}}><strong>Verso:</strong> {pendingFlashcard.verso}</p>
+              <div style={{background:"#2b3a2c",border:"1px solid #a8c4a2",borderRadius:12,padding:"10px 14px"}}>
+                <p style={{fontSize:12,color:"#a8c4a2",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                <p style={{fontSize:12,color:"#f0e6d2",margin:"0 0 2px"}}><strong>Frente:</strong> {pendingFlashcard.frente}</p>
+                <p style={{fontSize:12,color:"#f0e6d2",margin:"0 0 10px"}}><strong>Verso:</strong> {pendingFlashcard.verso}</p>
                 <div style={{display:"flex",gap:8}}>
                   <button style={{...S.btn("success"),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => {
                     const fc = {id: Date.now()+1, tipo:"flashcard", area: form.area||chatContext?.area||"Outro", tema: form.tema||chatContext?.tema||"", frente: pendingFlashcard.frente, verso: pendingFlashcard.verso, frenteImg: null, versoImg: null, interval: 1, repetitions: 0, easeFactor: 2.5, nextReview: today(), createdAt: today(), updatedAt: nowIso()};
@@ -1372,68 +1448,171 @@ function App() {
                 </div>
               </div>
             )}
-            {chatLoading && <div style={{alignSelf:"flex-start",background:"#131720",border:"1px solid #2d3748",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#718096"}}>Pensando…</div>}
+            {chatLoading && <div style={{alignSelf:"flex-start",background:"#243530",border:"1px solid #3d5048",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#8d9890"}}>Pensando…</div>}
             <div ref={chatEndRef}/>
           </div>
-          <div style={{padding:"10px 12px",borderTop:"1px solid #1e2535",display:"flex",gap:8}}>
+          <div style={{padding:"10px 12px",borderTop:"1px solid #324239",display:"flex",gap:8}}>
             <input style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px"}} placeholder="Digite sua dúvida…" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key==="Enter" && !e.shiftKey && sendChat()}/>
             <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0}} onClick={sendChat} disabled={chatLoading||!chatInput.trim()}>↑</button>
           </div>
         </div>
       )}
 
-      <nav style={S.nav}>
-        {[["home","Início"],["add","+ Adicionar"],["list","Banco"],["review_start","Revisar"]].map(([v,l]) => (
-          <button key={v} style={S.navB(isActive(v))} onClick={() => setView(v)}>{l}</button>
-        ))}
-        <button
-          onClick={() => setConfigOpen(true)}
-          title={syncBadge(syncState, !!getGhToken() && !!getGistId()).title}
-          style={{marginLeft:"auto",background:"transparent",border:"none",color:"#4a5568",padding:"8px 10px",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",gap:6}}
-        >
+      {/* Header com brand */}
+      <div style={{display:"flex",alignItems:"center",gap:10,padding:"14px 18px 8px",borderBottom:`1px solid ${COZY.lineSoft}`}}>
+        <BrandMark size={28} accent={COZY.peach} ink={COZY.bg}/>
+        <div style={{display:"flex",flexDirection:"column",lineHeight:1}}>
+          <span style={{fontFamily:COZY.fontDisplay,fontWeight:500,fontSize:15,color:COZY.text,letterSpacing:"-0.01em"}}>Caderno <em style={{color:COZY.peach,fontStyle:"italic",fontWeight:400}}>de erros</em></span>
+          <span style={{fontFamily:COZY.fontMono,fontSize:8,color:COZY.textMute,letterSpacing:"0.18em",textTransform:"uppercase",marginTop:3}}>medicina · revisão</span>
+        </div>
+        <div style={{flex:1}}/>
+        <button onClick={() => setConfigOpen(true)} title={syncBadge(syncState, !!getGhToken() && !!getGistId()).title} style={{background:"transparent",border:"none",color:COZY.textMute,padding:"6px 8px",cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",gap:5}}>
           {syncBadge(syncState, !!getGhToken() && !!getGistId()).icon}
-          <span style={{fontSize:11,color:"#718096"}}>{syncBadge(syncState, !!getGhToken() && !!getGistId()).label}</span>
+          <span style={{fontSize:10,color:COZY.textMute,fontFamily:COZY.fontMono}}>{syncBadge(syncState, !!getGhToken() && !!getGistId()).label}</span>
         </button>
-        <button style={{...S.navB(false)}} onClick={() => setConfigOpen(true)} title="Configurações">⚙️</button>
-      </nav>
+        <button style={{background:"transparent",border:"none",color:COZY.textSoft,padding:"6px 8px",cursor:"pointer",fontSize:16}} onClick={() => setConfigOpen(true)} title="Configurações">⚙</button>
+      </div>
+
+      {/* Top nav (apenas desktop) */}
+      {!isMobile && (
+        <nav style={S.nav}>
+          {[["home","Início"],["add","+ Adicionar"],["list","Banco"],["review_start","Revisar"]].map(([v,l]) => (
+            <button key={v} style={S.navB(isActive(v))} onClick={() => setView(v)}>{l}</button>
+          ))}
+        </nav>
+      )}
 
       <div style={{padding:"16px 16px 0"}}>
-        {view === "home" && (
-          <div>
-            <p style={{fontSize:11,color:"#4a5568",marginBottom:16}}>{new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}</p>
-            {!getApiKey() && (
-              <div style={{...S.card,background:"#3d2a1a",border:"1px solid #744210",marginBottom:12}}>
-                <p style={{fontSize:13,color:"#fbd38d",margin:"0 0 6px",fontWeight:500}}>⚠️ Chave da API não configurada</p>
-                <p style={{fontSize:12,color:"#d4a574",margin:"0 0 8px",lineHeight:1.5}}>Funções de IA (extrair questão, gerar flashcard, tutor) precisam de uma chave da Anthropic.</p>
-                <button style={{...S.btn("warn"),padding:"6px 14px",fontSize:12}} onClick={() => setConfigOpen(true)}>Configurar agora</button>
+        {view === "home" && (() => {
+          const hr = new Date().getHours();
+          const saud = hr < 5 ? "boa madrugada," : hr < 12 ? "bom dia," : hr < 18 ? "boa tarde," : "boa noite,";
+          const dataFmt = new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"}).replace(/-feira/,"");
+          const totalQ = cards.filter(c => c.tipo==="questao").length;
+          const totalF = cards.filter(c => c.tipo==="flashcard").length;
+          // Bar chart dos últimos 7 dias — conta cards com updatedAt nesse dia
+          const week = (() => {
+            const out = [];
+            for (let i = 6; i >= 0; i--) {
+              const d = new Date(); d.setDate(d.getDate() - i);
+              const ymd = d.toISOString().slice(0,10);
+              const n = cards.filter(c => (c.updatedAt||"").slice(0,10) === ymd && c.tipo === "flashcard").length;
+              out.push({ ymd, n, label: ["d","s","t","q","q","s","s"][d.getDay()] });
+            }
+            return out;
+          })();
+          const maxWeek = Math.max(1, ...week.map(w => w.n));
+          const totalSemana = week.reduce((a,b) => a+b.n, 0);
+          const recentes = [...cards].filter(c => c.tipo === "flashcard" && c.updatedAt).sort((a,b) => (b.updatedAt||"").localeCompare(a.updatedAt||"")).slice(0, 3);
+          return (
+          <div style={{margin:"-16px -16px 0",padding:"0 0 24px"}}>
+            {/* Hero */}
+            <div style={{
+              padding:"24px 22px 22px",position:"relative",overflow:"hidden",
+              background:`radial-gradient(ellipse 360px 240px at 92% -10%, ${COZY.peachSoft} 0%, transparent 70%), ${COZY.bg}`,
+            }}>
+              <div style={{position:"absolute",right:-6,top:6,opacity:0.45,pointerEvents:"none"}}>
+                <BrandMark size={120} accent={COZY.peach} ink={COZY.bg}/>
               </div>
-            )}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              {[["Total", cards.length, "blue"], ["Hoje", dueToday, "green"], ["Questões", cards.filter(c => c.tipo==="questao").length, "purple"], ["Flashcards", cards.filter(c => c.tipo==="flashcard").length, "blue"]].map(([l,v,c]) => (
-                <div key={l} style={{background:"#1a1f2e",border:"1px solid #1e2535",borderRadius:10,padding:"12px 14px"}}>
-                  <p style={{fontSize:11,color:"#718096",margin:"0 0 4px"}}>{l}</p>
-                  <p style={{fontSize:26,fontWeight:600,margin:0,color: c==="green"&&v>0?"#68d391":c==="purple"?"#d6bcfa":"#90cdf4"}}>{v}</p>
+              <div style={{position:"relative"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
+                  <span style={{fontFamily:COZY.fontHand,fontSize:22,color:COZY.peach,lineHeight:1}}>{saud}</span>
+                  <span style={{fontSize:10,color:COZY.textMute,letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:600}}>· {dataFmt}</span>
+                </div>
+                {!getApiKey() && (
+                  <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:COZY.butterSoft,border:`1px solid ${COZY.butter}40`,borderRadius:8,marginBottom:14,fontSize:12,color:COZY.butter}}>
+                    <span>⚠️ Chave da Anthropic não configurada.</span>
+                    <button style={{background:"transparent",border:"none",color:COZY.butter,cursor:"pointer",fontWeight:700,textDecoration:"underline",fontSize:12}} onClick={() => setConfigOpen(true)}>configurar</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Big metric card */}
+            <div style={{padding:"6px 16px 14px"}}>
+              <div style={{...S.card,padding:"18px 20px 16px",marginBottom:0}}>
+                <div style={{fontSize:10,color:COZY.textMute,letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:6,fontWeight:600}}>revisões para hoje</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:14}}>
+                  <span style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:72,lineHeight:0.85,color:dueToday>0?COZY.peach:COZY.sage,letterSpacing:"-0.04em"}}>{dueToday}</span>
+                  <div style={{flex:1,paddingBottom:6}}>
+                    <div style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:15,color:COZY.textSoft}}>{dueToday>0 ? "fichas te esperam." : "em dia."}</div>
+                    <div style={{fontSize:11,color:COZY.textFaint,marginTop:3,fontFamily:COZY.fontMono}}>{cards.length} cards no acervo</div>
+                  </div>
+                </div>
+                {dueToday > 0 && (
+                  <div style={{marginTop:14,display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <button style={{...S.btn("primary"),flex:"1 1 100%",padding:"12px",fontSize:12,letterSpacing:"0.04em",textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:8}} onClick={() => startReview("flashcard")}>
+                      começar revisão
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+                    </button>
+                    {dueQ > 0 && <button style={{...S.btn(),flex:"1 1 auto",fontSize:11}} onClick={() => startReview("questao")}>questões ({dueQ})</button>}
+                    <button style={{...S.btn(),flex:"1 1 auto",fontSize:11}} onClick={() => startReview("all")}>tudo ({dueToday})</button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Stats row */}
+            <div style={{padding:"0 16px 14px",display:"grid",gridTemplateColumns:"repeat(3, 1fr)",gap:8}}>
+              {[
+                {label:"acervo",value:cards.length,sub:"fichas",tint:COZY.peach,icon:"❉"},
+                {label:"questões",value:totalQ,sub:"q",tint:COZY.sage,icon:"✓"},
+                {label:"flashcards",value:totalF,sub:"fc",tint:COZY.butter,icon:"✦"},
+              ].map(s => (
+                <div key={s.label} style={{background:COZY.bg2,border:`1px solid ${COZY.lineSoft}`,borderRadius:10,padding:"10px 12px"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:4}}>
+                    <span style={{color:s.tint,fontSize:10}}>{s.icon}</span>
+                    <span style={{fontSize:9,color:COZY.textMute,letterSpacing:"0.12em",textTransform:"uppercase",fontWeight:600}}>{s.label}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"baseline",gap:4}}>
+                    <span style={{fontFamily:COZY.fontDisplay,fontWeight:500,fontSize:22,color:s.tint,letterSpacing:"-0.02em",lineHeight:1}}>{s.value}</span>
+                    <span style={{fontSize:9,color:COZY.textFaint}}>{s.sub}</span>
+                  </div>
                 </div>
               ))}
             </div>
-            {dueToday > 0 ? (
-              <div style={S.card}>
-                <p style={{fontWeight:500,marginBottom:12,fontSize:14}}>Revisões pendentes</p>
-                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {dueQ > 0 && <button style={S.btn("primary")} onClick={() => startReview("questao")}>Questões ({dueQ})</button>}
-                  {dueF > 0 && <button style={S.btn("success")} onClick={() => startReview("flashcard")}>Flashcards ({dueF})</button>}
-                  <button style={S.btn()} onClick={() => startReview("all")}>Tudo ({dueToday})</button>
+
+            {/* Bar chart 7 dias */}
+            {totalSemana > 0 && (
+              <div style={{padding:"0 16px 14px"}}>
+                <div style={{background:COZY.bg2,border:`1px solid ${COZY.lineSoft}`,borderRadius:12,padding:"14px 16px"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12}}>
+                    <span style={{fontSize:9,color:COZY.textMute,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:600}}>últimos 7 dias</span>
+                    <span style={{fontFamily:COZY.fontMono,fontSize:10,color:COZY.textSoft}}>{totalSemana} revisões</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:5,height:48}}>
+                    {week.map((w,i) => {
+                      const today = i === week.length - 1;
+                      return (
+                        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+                          <div style={{width:"100%",height:`${(w.n/maxWeek)*100}%`,minHeight:w.n>0?3:0,background:today?COZY.peach:COZY.surface,borderRadius:3}}/>
+                          <span style={{fontSize:8,color:today?COZY.peach:COZY.textFaint,fontFamily:COZY.fontMono}}>{w.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            ) : (
-              <div style={{...S.card,textAlign:"center",padding:"32px 18px"}}>
-                <p style={{fontSize:20,marginBottom:4}}>✓</p>
-                <p style={{color:"#68d391",fontWeight:500,marginBottom:4}}>Em dia!</p>
-                <p style={{fontSize:13,color:"#718096"}}>Nenhuma revisão pendente hoje.</p>
+            )}
+
+            {/* Última atividade */}
+            {recentes.length > 0 && (
+              <div style={{padding:"0 16px"}}>
+                <div style={{fontSize:10,color:COZY.textMute,letterSpacing:"0.14em",textTransform:"uppercase",marginBottom:10,fontWeight:600}}>última atividade</div>
+                {recentes.map(c => (
+                  <div key={c.id} style={{padding:"10px 0",borderTop:`1px solid ${COZY.lineSoft}`,display:"flex",gap:10}}>
+                    <div style={{width:3,alignSelf:"stretch",background:areaTint(c.area),borderRadius:1}}/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:10,color:areaTint(c.area),letterSpacing:"0.08em",textTransform:"uppercase",fontWeight:600,marginBottom:3}}>{c.area || "—"}</div>
+                      <div style={{fontFamily:COZY.fontDisplay,fontSize:13,color:COZY.textSoft,lineHeight:1.4,fontStyle:"italic",overflow:"hidden",textOverflow:"ellipsis",display:"-webkit-box",WebkitLineClamp:1,WebkitBoxOrient:"vertical"}} dangerouslySetInnerHTML={{__html: (c.frente||c.enunciado||"").slice(0, 200)}}/>
+                    </div>
+                    <span style={{fontFamily:COZY.fontMono,fontSize:10,color:COZY.textFaint,alignSelf:"center"}}>{c.repetitions||0}↻</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
-        )}
+          );
+        })()}
 
         {view === "add" && (
           <div>
@@ -1443,17 +1622,17 @@ function App() {
             </div>
             <div style={S.card}>
               <p style={{fontSize:13,fontWeight:500,marginBottom:10}}>📷 Imagens da questão</p>
-              <div style={{border:"1px dashed #2d3748",borderRadius:8,padding:14,textAlign:"center",marginBottom:10,cursor:"pointer"}} onClick={() => fileRef.current.click()}>
-                <p style={{color:"#4a5568",fontSize:13,margin:"0 0 2px"}}>Clique para adicionar imagens</p>
-                <p style={{color:"#2d3748",fontSize:12,margin:0}}>ou cole com Ctrl+V — pode adicionar várias</p>
+              <div style={{border:"1px dashed #3d5048",borderRadius:8,padding:14,textAlign:"center",marginBottom:10,cursor:"pointer"}} onClick={() => fileRef.current.click()}>
+                <p style={{color:"#5e6f66",fontSize:13,margin:"0 0 2px"}}>Clique para adicionar imagens</p>
+                <p style={{color:"#3d5048",fontSize:12,margin:0}}>ou cole com Ctrl+V — pode adicionar várias</p>
               </div>
               <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleImgChange}/>
               {imgPreviews.length > 0 && (
                 <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:10}}>
                   {imgPreviews.map((src, i) => (
                     <div key={i} style={{position:"relative",display:"inline-block"}}>
-                      <img src={src} style={{height:80,borderRadius:6,border:"1px solid #2d3748",display:"block",cursor:"zoom-in"}} onClick={() => setLightbox(src)} alt={`img-${i}`}/>
-                      <button onClick={() => removeImgAt(i)} style={{position:"absolute",top:-6,right:-6,background:"#9b2c2c",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+                      <img src={src} style={{height:80,borderRadius:6,border:"1px solid #3d5048",display:"block",cursor:"zoom-in"}} onClick={() => setLightbox(src)} alt={`img-${i}`}/>
+                      <button onClick={() => removeImgAt(i)} style={{position:"absolute",top:-6,right:-6,background:"#d9a3a3",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
                     </div>
                   ))}
                 </div>
@@ -1482,7 +1661,7 @@ function App() {
                   <div style={{display:"flex",gap:6,marginBottom:12}}>
                     {["A","B","C","D","E"].map(l => <button key={l} style={{...S.btn(form.correta===l?"success":""),padding:"7px 14px"}} onClick={() => setForm(f => ({...f, correta: l}))}>{l}</button>)}
                   </div>
-                  <label style={{...S.lbl,marginBottom:6}}>Qual alternativa você marcou? <span style={{color:"#4a5568",fontWeight:400}}>(opcional)</span></label>
+                  <label style={{...S.lbl,marginBottom:6}}>Qual alternativa você marcou? <span style={{color:"#5e6f66",fontWeight:400}}>(opcional)</span></label>
                   <div style={{display:"flex",gap:6,marginBottom:12}}>
                     {["A","B","C","D","E"].map(l => (
                       <button key={l} style={{...S.btn(form.alternativaMarcada===l?"danger":""),padding:"7px 14px",opacity: form.correta===l ? 0.3 : 1}} onClick={() => setForm(f => ({...f, alternativaMarcada: f.alternativaMarcada===l?"":l}))} disabled={form.correta===l}>{l}</button>
@@ -1501,7 +1680,7 @@ function App() {
                 }}>Salvar flashcard</button>
               ) : (
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  <p style={{fontSize:12,color:"#718096",margin:"0 0 2px"}}>O que deseja salvar?</p>
+                  <p style={{fontSize:12,color:"#8d9890",margin:"0 0 2px"}}>O que deseja salvar?</p>
                   <button style={{...S.btn("primary"),padding:"11px"}} disabled={!form.enunciado||aiLoading} onClick={() => saveWithOption("ambos")}>{aiLoading ? "Gerando…" : "✨ Questão + Flashcard (recomendado)"}</button>
                   <div style={{display:"flex",gap:8}}>
                     <button style={{...S.btn("success"),flex:1,padding:"10px"}} disabled={!form.enunciado||aiLoading} onClick={() => saveWithOption("flashcard")}>Só flashcard</button>
@@ -1515,29 +1694,29 @@ function App() {
 
         {view === "list" && (
           <div>
-            <input type="text" placeholder="Buscar questões e flashcards…" value={bankSearch} onChange={e => { setBankSearch(e.target.value); setBankExpandedId(null); setBankPage(1); }} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #1e2535",background:"#131720",color:"#e2e8f0",fontSize:13,marginBottom:10,outline:"none",boxSizing:"border-box"}}/>
+            <input type="text" placeholder="Buscar questões e flashcards…" value={bankSearch} onChange={e => { setBankSearch(e.target.value); setBankExpandedId(null); setBankPage(1); }} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1px solid #324239",background:"#243530",color:"#f0e6d2",fontSize:13,marginBottom:10,outline:"none",boxSizing:"border-box"}}/>
             <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
               {["Todas", ...AREAS].map(a => <button key={a} style={{...S.btn(bankFilter===a?"primary":""),whiteSpace:"nowrap",padding:"6px 12px",fontSize:12}} onClick={() => { setBankFilter(a); setBankPage(1); }}>{a}</button>)}
             </div>
-            <div style={{display:"flex",gap:0,marginBottom:14,background:"#131720",borderRadius:10,padding:3}}>
+            <div style={{display:"flex",gap:0,marginBottom:14,background:"#243530",borderRadius:10,padding:3}}>
               {(() => {
                 const sq = bankSearch.toLowerCase().trim(); const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
                 const qLen = filtered.filter(c => c.tipo === "questao").length;
                 const fLen = filtered.filter(c => c.tipo === "flashcard").length;
                 return [["questoes", `Questões (${qLen})`], ["flashcards", `Flashcards (${fLen})`]].map(([v, l]) => (
-                  <button key={v} style={{flex:1,padding:"8px 0",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,background: bankTab===v?"#2b6cb0":"transparent",color: bankTab===v?"#e2e8f0":"#718096"}} onClick={() => {setBankTab(v); setBankExpandedId(null); setBankPage(1);}}>{l}</button>
+                  <button key={v} style={{flex:1,padding:"8px 0",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,background: bankTab===v?"#e8b69a":"transparent",color: bankTab===v?"#f0e6d2":"#8d9890"}} onClick={() => {setBankTab(v); setBankExpandedId(null); setBankPage(1);}}>{l}</button>
                 ));
               })()}
             </div>
             {(() => {
               const sq = bankSearch.toLowerCase().trim(); const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
               const list = filtered.filter(c => c.tipo === (bankTab === "questoes" ? "questao" : "flashcard")).sort((a,b) => b.id - a.id);
-              if (list.length === 0) return <p style={{color:"#4a5568",fontSize:13,textAlign:"center",marginTop:40}}>Nenhum item ainda.</p>;
+              if (list.length === 0) return <p style={{color:"#5e6f66",fontSize:13,textAlign:"center",marginTop:40}}>Nenhum item ainda.</p>;
               const visible = list.slice(0, bankPage * BANK_PAGE_SIZE);
               if (bankTab === "questoes") return visible.map(c => {
                 const exp = bankExpandedId === c.id;
                 return (
-                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding: c.exameCrop?"0":"16px 18px",cursor:"pointer",overflow:"hidden",outline:bankHighlightId===c.id?"2px solid #63b3ed":"none",boxShadow:bankHighlightId===c.id?"0 0 0 6px rgba(99,179,237,0.2)":"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding: c.exameCrop?"0":"16px 18px",cursor:"pointer",overflow:"hidden",outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
                     {c.exameCrop && <ExamHeader src={c.exameCrop} onZoom={setLightbox}/>}
                     <div style={{padding: c.exameCrop?"10px 14px 14px":"0"}}>
                       <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
@@ -1545,15 +1724,15 @@ function App() {
                         {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
                         {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
                       </div>
-                      <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#e2e8f0"}}>{c.enunciado}</p>
+                      <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#f0e6d2"}}>{c.enunciado}</p>
                       {c.enunciadoImgs?.length > 0 && !exp && (
-                        <span style={{fontSize:11,color:"#718096",display:"block",marginBottom:4}}>🖼️ {c.enunciadoImgs.length} imagem{c.enunciadoImgs.length>1?"ns":""}</span>
+                        <span style={{fontSize:11,color:"#8d9890",display:"block",marginBottom:4}}>🖼️ {c.enunciadoImgs.length} imagem{c.enunciadoImgs.length>1?"ns":""}</span>
                       )}
                       {c.enunciadoImgs?.length > 0 && exp && (
                         <div style={{display:"flex",flexWrap:"wrap",gap:8,margin:"8px 0 4px"}}>
                           {c.enunciadoImgs.map((src,i) => (
                             <img key={i} src={src} onClick={e => {e.stopPropagation(); setLightbox(src);}}
-                              style={{maxWidth:"100%",maxHeight:220,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#131720",display:"block"}} alt={`img-${i}`}/>
+                              style={{maxWidth:"100%",maxHeight:220,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#243530",display:"block"}} alt={`img-${i}`}/>
                           ))}
                         </div>
                       )}
@@ -1563,16 +1742,16 @@ function App() {
                             const l = ["A","B","C","D","E"][i];
                             const isC = l === c.correta;
                             const isM = l === c.alternativaMarcada;
-                            return <div key={l} style={{padding:"7px 11px",marginBottom:5,borderRadius:8,background: isC?"#1c4532":isM?"#3d1a1a":"#131720",border:`1px solid ${isC?"#38a169":isM?"#9b2c2c":"#1e2535"}`,fontSize:13,color: isC?"#9ae6b4":isM?"#fc8181":"#a0aec0"}}>{alt}{isM && !isC ? " ← você marcou" : ""}</div>;
+                            return <div key={l} style={{padding:"7px 11px",marginBottom:5,borderRadius:8,background: isC?"#2b3a2c":isM?"#3d1a1a":"#243530",border:`1px solid ${isC?"#a8c4a2":isM?"#d9a3a3":"#324239"}`,fontSize:13,color: isC?"#a8c4a2":isM?"#fc8181":"#c9bfa6"}}>{alt}{isM && !isC ? " ← você marcou" : ""}</div>;
                           })}
-                          {c.explicacao && <p style={{fontSize:12,color:"#a0aec0",marginTop:10,lineHeight:1.6,borderTop:"1px solid #1e2535",paddingTop:8}}>{c.explicacao}</p>}
+                          {c.explicacao && <p style={{fontSize:12,color:"#c9bfa6",marginTop:10,lineHeight:1.6,borderTop:"1px solid #324239",paddingTop:8}}>{c.explicacao}</p>}
                         </div>
                       )}
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
-                        <span style={{fontSize:11,color:"#4a5568"}}>Revisão: {c.nextReview} · {c.interval}d</span>
+                        <span style={{fontSize:11,color:"#5e6f66"}}>Revisão: {c.nextReview} · {c.interval}d</span>
                         <div style={{display:"flex",gap:6}}>
                           <button style={{...S.btn("success"),padding:"4px 10px",fontSize:11}} onClick={() => generateFlashcardAI(c)} disabled={aiLoading}>✨</button>
-                          <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={() => openTutorWithContext({...c})}>💬</button>{(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return lk ? <button title="Ir para o flashcard" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("flashcards"); setBankExpandedId(lk.id); setBankHighlightId(lk.id); setTimeout(()=>{const el=document.getElementById("card-"+lk.id);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>⚡ Card</button> : <span title="Nenhum flashcard vinculado"   style={{fontSize:10,color:"#4a5568",padding:"3px 6px",borderRadius:6,background:"#131720",border:"1px solid #1e2535"}}>sem card</span>; })()}<button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={() => deleteCard(c.id)}>✕</button>
+                          <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={() => openTutorWithContext({...c})}>💬</button>{(() => { const lk = cards.find(x => x.tipo==="flashcard" && x.origemId===c.id); return lk ? <button title="Ir para o flashcard" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("flashcards"); setBankExpandedId(lk.id); setBankHighlightId(lk.id); setTimeout(()=>{const el=document.getElementById("card-"+lk.id);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>⚡ Card</button> : <span title="Nenhum flashcard vinculado"   style={{fontSize:10,color:"#5e6f66",padding:"3px 6px",borderRadius:6,background:"#243530",border:"1px solid #324239"}}>sem card</span>; })()}<button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={() => deleteCard(c.id)}>✕</button>
                         </div>
                       </div>
                     </div>
@@ -1584,32 +1763,32 @@ function App() {
                 const pF = stripHtml(c.frente);
                 const pV = stripHtml(c.verso);
                 return (
-                  <div id={"card-"+c.id} key={c.id} style={{...S.card,cursor:"pointer",outline:bankHighlightId===c.id?"2px solid #63b3ed":"none",boxShadow:bankHighlightId===c.id?"0 0 0 6px rgba(99,179,237,0.2)":"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                  <div id={"card-"+c.id} key={c.id} style={{...S.card,cursor:"pointer",outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
                     <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
                       <span style={S.bdg("blue")}>{c.area}</span>
                       {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
                       {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
-                      {c.enviadoMedcof && <span style={{...S.bdg("green"),background:"#0b3b2a",color:"#9ae6b4"}}>✓ MedCof {new Date(c.enviadoMedcof).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>}
+                      {c.enviadoMedcof && <span style={{...S.bdg("green"),background:"#2b3a2c",color:"#a8c4a2"}}>✓ MedCof {new Date(c.enviadoMedcof).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}</span>}
                     </div>
                     <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
-                      <div style={{fontSize:13,fontWeight:500,color:"#e2e8f0",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: c.frente}}/>
+                      <div style={{fontSize:13,fontWeight:500,color:"#f0e6d2",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: c.frente}}/>
                       <button title="Copiar frente" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pF, c.frente);}}>📋</button>
                     </div>
                     {c.frenteImg && <img src={c.frenteImg} onClick={() => setLightbox(c.frenteImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:6,cursor:"zoom-in"}} alt="frente"/>}
                     {exp && (
-                      <div style={{marginTop:8,borderTop:"1px solid #1e2535",paddingTop:10}} onClick={e => e.stopPropagation()}>
+                      <div style={{marginTop:8,borderTop:"1px solid #324239",paddingTop:10}} onClick={e => e.stopPropagation()}>
                         <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
-                          <div style={{fontSize:13,color:"#9ae6b4",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: c.verso}}/>
+                          <div style={{fontSize:13,color:"#a8c4a2",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: c.verso}}/>
                           <button title="Copiar verso" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pV, c.verso);}}>📋</button>
                         </div>
                         {c.versoImg && <img src={c.versoImg} onClick={() => setLightbox(c.versoImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,cursor:"zoom-in"}} alt="verso"/>}
                       </div>
                     )}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10}} onClick={e => e.stopPropagation()}>
-                      <span style={{fontSize:11,color:"#4a5568"}}>{exp?"▲ ocultar":"▼ ver verso"} · {c.nextReview} · {c.interval}d</span>
+                      <span style={{fontSize:11,color:"#5e6f66"}}>{exp?"▲ ocultar":"▼ ver verso"} · {c.nextReview} · {c.interval}d</span>
                       <div style={{display:"flex",gap:6}}>
                         <button title={c.enviadoMedcof?"Reenviar ao MedCof":"Enviar ao MedCof (baralho de erros)"} style={{...S.btn("primary"),padding:"4px 10px",fontSize:11,opacity: sendingToMedcof===c.id?0.5:1}} disabled={sendingToMedcof===c.id} onClick={e => {e.stopPropagation(); enviarParaMedcof(c);}}>{sendingToMedcof===c.id?"⏳":"📤"}</button>
-                        <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>{(() => { const orig = c.origemId ? cards.find(x => x.id===c.origemId) : null; return orig ? <button title="Ir para a questao" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝 Q</button> : <span title="Nenhuma questao vinculada"   style={{fontSize:10,color:"#4a5568",padding:"3px 6px",borderRadius:6,background:"#131720",border:"1px solid #1e2535"}}>sem questao</span>; })()}<button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
+                        <button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); openTutorWithContext({...c, exameCrop: c.origemSnapshot?.exameCrop||null, enunciado: c.origemSnapshot?.enunciado||null, alternativas: c.origemSnapshot?.alternativas||null, correta: c.origemSnapshot?.correta||null, alternativaMarcada: c.origemSnapshot?.alternativaMarcada||null, explicacao: c.origemSnapshot?.explicacao||null, comentario: c.origemSnapshot?.comentario||null});}}>💬</button>{(() => { const orig = c.origemId ? cards.find(x => x.id===c.origemId) : null; return orig ? <button title="Ir para a questao" style={{...S.btn("primary"),padding:"4px 10px",fontSize:11}}   onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝 Q</button> : <span title="Nenhuma questao vinculada"   style={{fontSize:10,color:"#5e6f66",padding:"3px 6px",borderRadius:6,background:"#243530",border:"1px solid #324239"}}>sem questao</span>; })()}<button style={{...S.btn(),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
                         <button style={{...S.btn("danger"),padding:"4px 10px",fontSize:11}} onClick={e => {e.stopPropagation(); deleteCard(c.id);}}>✕</button>
                       </div>
                     </div>
@@ -1628,81 +1807,159 @@ function App() {
 
         {view === "review_start" && (
           <div>
-            <div style={{...S.card,textAlign:"center",padding:"32px 18px",marginBottom:12}}>
-              <p style={{fontSize:36,fontWeight:700,color:"#63b3ed",marginBottom:4}}>{dueToday}</p>
-              <p style={{color:"#718096",fontSize:14}}>itens para revisar hoje</p>
+            <div style={{...S.card,textAlign:"center",padding:"40px 18px 32px",marginBottom:12,background:`radial-gradient(ellipse 320px 200px at 50% -20%, ${COZY.peachSoft} 0%, transparent 70%), ${COZY.surface}`}}>
+              <p style={{fontFamily:COZY.fontDisplay,fontSize:72,fontWeight:400,color:dueToday>0?COZY.peach:COZY.sage,marginBottom:0,lineHeight:0.9,letterSpacing:"-0.04em"}}>{dueToday}</p>
+              <p style={{color:COZY.textSoft,fontSize:14,fontFamily:COZY.fontDisplay,fontStyle:"italic",marginTop:6}}>itens para revisar hoje</p>
             </div>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
               {dueQ > 0 && <button style={{...S.btn("primary"),padding:14}} onClick={() => startReview("questao")}>Revisar Questões ({dueQ})</button>}
               {dueF > 0 && <button style={{...S.btn("success"),padding:14}} onClick={() => startReview("flashcard")}>Revisar Flashcards ({dueF})</button>}
               {dueToday > 0 && <button style={{...S.btn(),padding:14}} onClick={() => startReview("all")}>Revisar Tudo ({dueToday})</button>}
-              {dueToday === 0 && <p style={{textAlign:"center",color:"#68d391",padding:"32px 0"}}>Nenhuma revisão pendente hoje!</p>}
+              {dueToday === 0 && <p style={{textAlign:"center",color:COZY.sage,padding:"32px 0",fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:16}}>nenhuma revisão pendente hoje.</p>}
             </div>
           </div>
         )}
 
-        {view === "review" && currentCard && (
-          <div>
-            <p style={{fontSize:12,color:"#4a5568",marginBottom:12}}>{reviewIdx+1} / {reviewQueue.length} · {currentCard.area}{currentCard.tema?` · ${currentCard.tema}`:""}</p>
-            <div style={{...S.card,padding: currentCard.exameCrop?"0":"16px 18px",overflow:"hidden"}}>
-              {currentCard.tipo === "questao" ? (
-                <React.Fragment>
-                  {currentCard.exameCrop && <ExamHeader src={currentCard.exameCrop} onZoom={setLightbox}/>}
-                  <div style={{padding: currentCard.exameCrop?"12px 16px 16px":"0"}}>
-                    <p style={{fontSize:14,lineHeight:1.7,marginBottom: currentCard.enunciadoImgs?.length?8:16}}>{currentCard.enunciado}</p>
+        {view === "review" && currentCard && (() => {
+          const tint = areaTint(currentCard.area);
+          const total = reviewQueue.length;
+          return (
+          <div style={{margin:"-16px -16px 0",display:"flex",flexDirection:"column",minHeight:"calc(100vh - 80px)"}}>
+            {/* Top bar: progresso */}
+            <div style={{padding:"14px 22px 8px",display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1,display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontFamily:COZY.fontMono,fontSize:11,color:COZY.textMute}}>{reviewIdx+1}/{total}</span>
+                <div style={{flex:1,height:3,background:COZY.surface,borderRadius:2,position:"relative",maxWidth:240}}>
+                  <div style={{position:"absolute",inset:0,width:`${((reviewIdx+1)/total)*100}%`,background:COZY.peach,borderRadius:2}}/>
+                </div>
+              </div>
+            </div>
+            {/* Area pill */}
+            <div style={{padding:"6px 22px 0",textAlign:"center"}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:8,color:tint,fontSize:10,letterSpacing:"0.18em",textTransform:"uppercase",fontWeight:600}}>
+                <div style={{width:14,height:1,background:"currentColor"}}/>
+                {currentCard.area}{currentCard.tema?<>· <span style={{fontStyle:"italic",fontFamily:COZY.fontDisplay,fontSize:13,fontWeight:400,letterSpacing:0,textTransform:"none"}}>{currentCard.tema}</span></>:null}
+                <div style={{width:14,height:1,background:"currentColor"}}/>
+              </span>
+            </div>
+            {/* Card central */}
+            <div style={{flex:1,padding:"20px 22px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+              <div style={{width:"100%",background:COZY.surface,border:`1px solid ${COZY.line}`,borderRadius:14,padding:"24px 22px",position:"relative",boxShadow:"0 18px 50px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)"}}>
+                {/* corner ornaments */}
+                <div style={{position:"absolute",top:10,left:10,width:14,height:14,borderTop:`1.5px solid ${COZY.peach}`,borderLeft:`1.5px solid ${COZY.peach}`,opacity:0.5}}/>
+                <div style={{position:"absolute",bottom:10,right:10,width:14,height:14,borderBottom:`1.5px solid ${COZY.peach}`,borderRight:`1.5px solid ${COZY.peach}`,opacity:0.5}}/>
+                {currentCard.tipo === "questao" ? (
+                  <React.Fragment>
+                    {currentCard.exameCrop && <div style={{margin:"-24px -22px 14px",borderRadius:"14px 14px 0 0",overflow:"hidden"}}><ExamHeader src={currentCard.exameCrop} onZoom={setLightbox}/></div>}
+                    <div style={{fontSize:9,color:COZY.textFaint,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:14,fontWeight:600}}>questão</div>
+                    <div style={{fontSize:14,lineHeight:1.7,color:COZY.text,marginBottom: currentCard.enunciadoImgs?.length?8:14}}>{currentCard.enunciado}</div>
                     {currentCard.enunciadoImgs?.length > 0 && (
                       <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:14}}>
                         {currentCard.enunciadoImgs.map((src,i) => (
-                          <img key={i} src={src} onClick={() => setLightbox(src)}
-                            style={{maxWidth:"100%",maxHeight:260,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#131720",display:"block"}} alt={`img-${i}`}/>
+                          <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",maxHeight:260,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:COZY.bg2,display:"block"}} alt={`img-${i}`}/>
                         ))}
                       </div>
                     )}
                     {currentCard.alternativas?.map((alt, i) => {
                       const l = ["A","B","C","D","E"][i];
                       const isC = l === currentCard.correta;
-                      return <div key={l} style={{padding:"8px 12px",marginBottom:6,borderRadius:8,background: showAnswer && isC?"#1c4532":"#131720",border:`1px solid ${showAnswer && isC?"#38a169":"#1e2535"}`,fontSize:13,color: showAnswer && isC?"#9ae6b4":"#a0aec0"}}>{alt}</div>;
+                      const ok = showAnswer && isC;
+                      return <div key={l} style={{padding:"8px 12px",marginBottom:6,borderRadius:8,background: ok?COZY.sageSoft:COZY.bg2,border:`1px solid ${ok?COZY.sage+"60":COZY.lineSoft}`,fontSize:13,color: ok?COZY.sage:COZY.textSoft}}>{alt}</div>;
                     })}
-                    {showAnswer && currentCard.explicacao && <p style={{fontSize:13,color:"#a0aec0",marginTop:12,lineHeight:1.6,borderTop:"1px solid #1e2535",paddingTop:10}}>{currentCard.explicacao}</p>}
-                  </div>
-                </React.Fragment>
+                    {showAnswer && currentCard.explicacao && (
+                      <div style={{marginTop:14,paddingTop:14,borderTop:`1px solid ${COZY.lineSoft}`}}>
+                        <div style={{fontSize:9,color:COZY.peach,letterSpacing:"0.18em",textTransform:"uppercase",marginBottom:8,fontWeight:600}}>explicação</div>
+                        <div style={{fontSize:13,color:COZY.textSoft,lineHeight:1.65}}>{currentCard.explicacao}</div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                ) : (
+                  <React.Fragment>
+                    <div style={{fontSize:9,color:COZY.textFaint,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:14,fontWeight:600}}>frente</div>
+                    <div style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:18,lineHeight:1.45,color:COZY.text,textAlign:"center"}} dangerouslySetInnerHTML={{__html: currentCard.frente}}/>
+                    {currentCard.frenteImg && <img src={currentCard.frenteImg} onClick={() => setLightbox(currentCard.frenteImg)} style={{maxWidth:"100%",borderRadius:8,margin:"14px auto 0",display:"block",cursor:"zoom-in"}} alt="frente"/>}
+                    {showAnswer && (
+                      <React.Fragment>
+                        <div style={{margin:"22px auto 14px",width:32,height:1,background:COZY.peach}}/>
+                        <div style={{fontSize:9,color:COZY.peach,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:12,fontWeight:600}}>verso</div>
+                        <div style={{fontSize:13,lineHeight:1.7,color:COZY.textSoft,textAlign:"left"}} dangerouslySetInnerHTML={{__html: currentCard.verso}}/>
+                        {currentCard.versoImg && <img src={currentCard.versoImg} onClick={() => setLightbox(currentCard.versoImg)} style={{maxWidth:"100%",borderRadius:8,marginTop:12,cursor:"zoom-in"}} alt="verso"/>}
+                      </React.Fragment>
+                    )}
+                  </React.Fragment>
+                )}
+              </div>
+            </div>
+            {/* Actions */}
+            <div style={{padding:"0 22px 22px",flexShrink:0}}>
+              {!showAnswer ? (
+                <button onClick={() => setShowAnswer(true)} style={{width:"100%",background:COZY.surface,color:COZY.text,border:`1px solid ${COZY.line}`,padding:13,fontSize:13,fontWeight:600,borderRadius:10,cursor:"pointer",fontFamily:COZY.font,letterSpacing:"0.02em"}}>mostrar verso</button>
               ) : (
-                <div style={{padding:"16px 18px"}}>
-                  <div style={{fontSize:15,lineHeight:1.7,marginBottom:8,fontWeight:500}} dangerouslySetInnerHTML={{__html: currentCard.frente}}/>
-                  {currentCard.frenteImg && <img src={currentCard.frenteImg} onClick={() => setLightbox(currentCard.frenteImg)} style={{maxWidth:"100%",borderRadius:8,marginBottom:12,cursor:"zoom-in"}} alt="frente"/>}
-                  {showAnswer && (
-                    <div style={{borderTop:"1px solid #1e2535",paddingTop:12}}>
-                      <div style={{fontSize:14,lineHeight:1.7,color:"#9ae6b4",marginBottom:8}} dangerouslySetInnerHTML={{__html: currentCard.verso}}/>
-                      {currentCard.versoImg && <img src={currentCard.versoImg} onClick={() => setLightbox(currentCard.versoImg)} style={{maxWidth:"100%",borderRadius:8,cursor:"zoom-in"}} alt="verso"/>}
-                    </div>
-                  )}
+                <div>
+                  <div style={{fontSize:10,color:COZY.textMute,letterSpacing:"0.14em",textTransform:"uppercase",textAlign:"center",marginBottom:10,fontWeight:600}}>como foi?</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6}}>
+                    {[
+                      {label:"errei",sub:"<1d",tint:COZY.rose,soft:COZY.roseSoft,grade:0},
+                      {label:"difícil",sub:"2d",tint:COZY.butter,soft:COZY.butterSoft,grade:2},
+                      {label:"bom",sub:"5d",tint:COZY.sage,soft:COZY.sageSoft,grade:3},
+                      {label:"fácil",sub:"+12d",tint:COZY.peach,soft:COZY.peachSoft,grade:4},
+                    ].map(b => (
+                      <button key={b.label} onClick={() => gradeCard(b.grade)} style={{background:b.soft,border:`1px solid ${b.tint}40`,borderRadius:10,padding:"11px 4px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,fontFamily:COZY.font}}>
+                        <span style={{color:b.tint,fontSize:12,fontWeight:600}}>{b.label}</span>
+                        <span style={{color:COZY.textMute,fontFamily:COZY.fontMono,fontSize:9}}>{b.sub}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-            {!showAnswer ? (
-              <button style={{...S.btn("primary"),width:"100%",padding:13}} onClick={() => setShowAnswer(true)}>Ver resposta</button>
-            ) : (
-              <div>
-                <p style={{fontSize:12,color:"#718096",marginBottom:8,textAlign:"center"}}>Como foi?</p>
-                <div style={{display:"flex",gap:8}}>
-                  <button style={{...S.btn("danger"),flex:1,padding:13}} onClick={() => gradeCard(0)}>Errei</button>
-                  <button style={{...S.btn("warn"),flex:1,padding:13}} onClick={() => gradeCard(2)}>Difícil</button>
-                  <button style={{...S.btn("success"),flex:1,padding:13}} onClick={() => gradeCard(4)}>Fácil</button>
-                </div>
-              </div>
-            )}
           </div>
-        )}
+          );
+        })()}
 
         {view === "reviewDone" && (
-          <div style={{...S.card,textAlign:"center",padding:"48px 18px"}}>
-            <p style={{fontSize:32,marginBottom:8}}>🎉</p>
-            <p style={{fontSize:18,fontWeight:500,color:"#68d391",marginBottom:8}}>Sessão concluída!</p>
-            <p style={{fontSize:13,color:"#718096",marginBottom:24}}>{reviewQueue.length} itens revisados</p>
+          <div style={{...S.card,textAlign:"center",padding:"48px 18px",background:`radial-gradient(ellipse 280px 180px at 50% 0%, ${COZY.sageSoft} 0%, transparent 70%), ${COZY.surface}`}}>
+            <p style={{fontSize:32,marginBottom:8}}>✦</p>
+            <p style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:22,color:COZY.sage,marginBottom:8}}>sessão concluída.</p>
+            <p style={{fontSize:13,color:COZY.textMute,marginBottom:24,fontFamily:COZY.fontMono}}>{reviewQueue.length} itens revisados</p>
             <button style={S.btn("primary")} onClick={() => setView("home")}>Voltar ao início</button>
           </div>
         )}
       </div>
+
+      {/* Bottom tab bar (mobile) */}
+      {isMobile && (
+        <div style={{position:"fixed",bottom:0,left:0,right:0,background:COZY.bg2,borderTop:`1px solid ${COZY.line}`,padding:"6px 6px max(10px, env(safe-area-inset-bottom)) 6px",display:"flex",justifyContent:"space-around",zIndex:850}}>
+          {[
+            {id:"home",label:"hoje",icon:"☀"},
+            {id:"review_start",label:"revisar",icon:"↻"},
+            {id:"add",label:"novo",icon:"+",primary:true},
+            {id:"list",label:"banco",icon:"☷"},
+            {id:"tutor",label:"tutor",icon:"✻"},
+          ].map(it => {
+            const active = it.id === view || (it.id==="review_start" && (view==="review" || view==="reviewDone"));
+            if (it.primary) {
+              return (
+                <button key={it.id} onClick={() => setView("add")} style={{background:COZY.peach,color:COZY.bg,border:"none",width:46,height:46,borderRadius:23,fontSize:24,fontWeight:600,cursor:"pointer",marginTop:-12,boxShadow:`0 8px 18px ${COZY.peach}40`,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>{it.icon}</button>
+              );
+            }
+            if (it.id === "tutor") {
+              return (
+                <button key={it.id} onClick={() => { if (view === "review" && currentCard) openTutorWithContext({...currentCard}); else setChatOpen(o => !o); }} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:chatOpen?COZY.peach:COZY.textMute,cursor:"pointer",padding:"4px 8px"}}>
+                  <span style={{fontSize:18}}>{it.icon}</span>
+                  <span style={{fontSize:9,letterSpacing:"0.06em",fontWeight:chatOpen?700:500,fontFamily:COZY.font}}>{it.label}</span>
+                </button>
+              );
+            }
+            return (
+              <button key={it.id} onClick={() => setView(it.id)} style={{background:"transparent",border:"none",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:active?COZY.peach:COZY.textMute,cursor:"pointer",padding:"4px 8px"}}>
+                <span style={{fontSize:18}}>{it.icon}</span>
+                <span style={{fontSize:9,letterSpacing:"0.06em",fontWeight:active?700:500,fontFamily:COZY.font}}>{it.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
