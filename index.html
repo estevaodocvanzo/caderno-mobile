@@ -2016,6 +2016,8 @@ Retorne SOMENTE um JSON (sem markdown):
 
   function saveEditedCard(id, fields) {
     setCards(prev => prev.map(c => c.id === id ? {...c, ...fields, updatedAt: nowIso()} : c));
+    // Também atualiza no reviewQueue (caso o user esteja editando durante a revisão)
+    setReviewQueue(prev => prev.map(c => c.id === id ? {...c, ...fields, updatedAt: nowIso()} : c));
     setEditingCard(null);
     showToast("Flashcard atualizado!");
   }
@@ -2728,7 +2730,7 @@ Retorne SOMENTE um JSON (sem markdown):
           const total = reviewQueue.length;
           return (
           <div style={{margin:"-16px -16px 0",display:"flex",flexDirection:"column",minHeight:"calc(100vh - 80px)"}}>
-            {/* Top bar: progresso */}
+            {/* Top bar: progresso + ações */}
             <div style={{padding:"14px 22px 8px",display:"flex",alignItems:"center",gap:10}}>
               <div style={{flex:1,display:"flex",alignItems:"center",gap:10}}>
                 <span style={{fontFamily:COZY.fontMono,fontSize:11,color:COZY.textMute}}>{reviewIdx+1}/{total}</span>
@@ -2736,6 +2738,10 @@ Retorne SOMENTE um JSON (sem markdown):
                   <div style={{position:"absolute",inset:0,width:`${((reviewIdx+1)/total)*100}%`,background:COZY.peach,borderRadius:2}}/>
                 </div>
               </div>
+              {currentCard.tipo === "flashcard" && (
+                <button title="Editar este flashcard" style={iconBtnStyle()} onClick={() => setEditingCard(currentCard)}>✏️</button>
+              )}
+              <button title="Tutor — perguntar sobre este card" style={iconBtnStyle()} onClick={() => openTutorWithContext({...currentCard})}>💬</button>
             </div>
             {/* Area pill */}
             <div style={{padding:"6px 22px 0",textAlign:"center"}}>
