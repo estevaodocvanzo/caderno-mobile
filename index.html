@@ -97,6 +97,15 @@ function statusChipStyle(tint) {
   };
 }
 
+// Cor que indica maturidade do card (intervalo SM-2 atual)
+function maturityColor(interval) {
+  const i = Number(interval || 1);
+  if (i < 3)  return COZY.rose;    // < 3d: novato
+  if (i < 14) return COZY.butter;  // < 2 sem
+  if (i < 60) return COZY.sage;    // < 2 mes
+  return COZY.sky;                 // maduro
+}
+
 // Tinge de área usado em headers, badges e bordas verticais
 function areaTint(area) {
   return ({
@@ -2630,16 +2639,25 @@ Retorne SOMENTE um JSON (sem markdown):
               const list = filtered.filter(c => c.tipo === (bankTab === "questoes" ? "questao" : "flashcard")).sort((a,b) => b.id - a.id);
               if (list.length === 0) return <p style={{color:"#5e6f66",fontSize:13,textAlign:"center",marginTop:40}}>Nenhum item ainda.</p>;
               const visible = list.slice(0, bankPage * BANK_PAGE_SIZE);
-              if (bankTab === "questoes") return visible.map(c => {
+              if (bankTab === "questoes") return visible.map((c, idx) => {
                 const exp = bankExpandedId === c.id;
+                const tint = areaTint(c.area);
+                const matCor = maturityColor(c.interval);
                 return (
-                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding: c.exameCrop?"0":"16px 18px",cursor:"pointer",overflow:"hidden",outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding:0,cursor:"pointer",overflow:"hidden",borderLeft:`3px solid ${tint}`,outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
                     {c.exameCrop && <ExamHeader src={c.exameCrop} onZoom={setLightbox}/>}
-                    <div style={{padding: c.exameCrop?"10px 14px 14px":"0"}}>
-                      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-                        <span style={S.bdg("blue")}>{c.area}</span>
-                        {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
-                        {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
+                    <div style={{display:"flex",gap:12,padding: c.exameCrop?"12px 16px 14px":"14px 16px"}}>
+                      {/* Numeração lateral */}
+                      <div style={{flexShrink:0,width:34,paddingTop:2,textAlign:"left"}}>
+                        <div style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:22,color:matCor,lineHeight:1,letterSpacing:"-0.02em"}}>{String(idx+1).padStart(2,"0")}</div>
+                        <div style={{fontFamily:COZY.fontMono,fontSize:9,color:COZY.textFaint,marginTop:4}}>{c.interval||1}d</div>
+                      </div>
+                      {/* Conteúdo */}
+                      <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+                        <span style={{color:tint,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700}}>{c.area}</span>
+                        {c.tema && <><span style={{fontSize:10,color:COZY.textFaint}}>·</span><span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:12,color:COZY.textMute}}>{c.tema}</span></>}
+                        {c.nextReview <= today() && <span style={{...statusChipStyle(COZY.peach),marginLeft:"auto"}}>revisar hoje</span>}
                       </div>
                       <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#f0e6d2"}}>{c.enunciado}</p>
                       {c.enunciadoImgs?.length > 0 && !exp && (
@@ -2678,20 +2696,29 @@ Retorne SOMENTE um JSON (sem markdown):
                           ); })()}
                         </div>
                       </div>
+                      </div>
                     </div>
                   </div>
                 );
               });
-              return visible.map(c => {
+              return visible.map((c, idx) => {
                 const exp = bankExpandedId === c.id;
                 const pF = stripHtml(c.frente);
                 const pV = stripHtml(c.verso);
+                const tint = areaTint(c.area);
+                const matCor = maturityColor(c.interval);
                 return (
-                  <div id={"card-"+c.id} key={c.id} style={{...S.card,cursor:"pointer",outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
-                    <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-                      <span style={S.bdg("blue")}>{c.area}</span>
-                      {c.tema && <span style={S.bdg("purple")}>{c.tema}</span>}
-                      {c.nextReview <= today() && <span style={S.bdg("green")}>revisar hoje</span>}
+                  <div id={"card-"+c.id} key={c.id} style={{...S.card,padding:0,cursor:"pointer",borderLeft:`3px solid ${tint}`,outline:bankHighlightId===c.id?`2px solid ${COZY.peach}`:"none",boxShadow:bankHighlightId===c.id?`0 0 0 6px ${COZY.peach}33`:"none",transition:"outline 0.3s,box-shadow 0.3s"}} onClick={() => setBankExpandedId(exp?null:c.id)}>
+                    <div style={{display:"flex",gap:12,padding:"14px 16px"}}>
+                      <div style={{flexShrink:0,width:34,paddingTop:2,textAlign:"left"}}>
+                        <div style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:22,color:matCor,lineHeight:1,letterSpacing:"-0.02em"}}>{String(idx+1).padStart(2,"0")}</div>
+                        <div style={{fontFamily:COZY.fontMono,fontSize:9,color:COZY.textFaint,marginTop:4}}>{c.interval||1}d</div>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+                      <span style={{color:tint,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700}}>{c.area}</span>
+                      {c.tema && <><span style={{fontSize:10,color:COZY.textFaint}}>·</span><span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:12,color:COZY.textMute}}>{c.tema}</span></>}
+                      {c.nextReview <= today() && <span style={{...statusChipStyle(COZY.peach),marginLeft:"auto"}}>revisar hoje</span>}
                     </div>
                     <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
                       <div style={{fontSize:13,fontWeight:500,color:"#f0e6d2",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.frente)}}/>
@@ -2718,6 +2745,8 @@ Retorne SOMENTE um JSON (sem markdown):
                         {c.origemId && cards.find(x => x.id===c.origemId) && <button title="Ir para a questão vinculada" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); setBankSearch(""); setBankTab("questoes"); setBankExpandedId(c.origemId); setBankHighlightId(c.origemId); setTimeout(()=>{const el=document.getElementById("card-"+c.origemId);if(el)el.scrollIntoView({behavior:"smooth",block:"center"});},80); setTimeout(()=>setBankHighlightId(null),2500);}}>📝</button>}
                         <button title="Editar" style={iconBtnStyle()} onClick={e => {e.stopPropagation(); setEditingCard(c);}}>✏️</button>
                         <button title="Excluir" style={iconBtnStyle("danger")} onClick={e => {e.stopPropagation(); deleteCard(c.id);}}>✕</button>
+                      </div>
+                    </div>
                       </div>
                     </div>
                   </div>
