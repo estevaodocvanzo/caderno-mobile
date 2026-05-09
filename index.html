@@ -556,24 +556,37 @@ async function repoGetFile(repo, name) {
   return { sha: r.data.sha, content: b64decode(r.data.content) };
 }
 
-// Cria/atualiza arquivo via PUT
-async function repoPutFile(repo, name, content, sha) {
+// Cria/atualiza arquivo via PUT — com retry on 409 (conflito de SHA = outro device escreveu antes)
+async function repoPutFile(repo, name, content, sha, _retry) {
   const body = {
     message: `update ${name}`,
     content: b64encode(content),
   };
   if (sha) body.sha = sha;
   const r = await callGithub("PUT", `/repos/${repo}/contents/${DATA_DIR}/${name}`, body);
-  if (!r.ok) throw new Error("Falha ao salvar " + name + ": " + (r.error || r.status));
-  return r.data?.content?.sha;
+  if (r.ok) return r.data?.content?.sha;
+  // 409 = SHA stale (outro device escreveu). Refetch SHA atual e retry uma vez.
+  if (r.status === 409 && !_retry) {
+    console.log(`[CAD] sync conflict em ${name}, refetch SHA e retry…`);
+    const fresh = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
+    const freshSha = fresh.ok ? fresh.data?.sha : undefined;
+    return repoPutFile(repo, name, content, freshSha, true);
+  }
+  throw new Error("Falha ao salvar " + name + ": " + (r.error || r.status));
 }
 
-// Remove arquivo via DELETE
-async function repoDeleteFile(repo, name, sha) {
+// Remove arquivo via DELETE — com retry on 409
+async function repoDeleteFile(repo, name, sha, _retry) {
   const r = await callGithub("DELETE", `/repos/${repo}/contents/${DATA_DIR}/${name}`, {
     message: `remove ${name}`, sha
   });
-  return r.ok;
+  if (r.ok) return true;
+  if (r.status === 409 && !_retry) {
+    const fresh = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
+    if (fresh.ok && fresh.data?.sha) return repoDeleteFile(repo, name, fresh.data.sha, true);
+    if (fresh.status === 404) return true; // já deletado
+  }
+  return false;
 }
 
 // Pull: baixa todos os parts e monta cards
