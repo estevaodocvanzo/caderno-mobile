@@ -2302,7 +2302,7 @@ Retorne SOMENTE um JSON (sem markdown):
             <BrandMark size={isMobileFullScreen?28:22} accent={COZY.peach} ink={COZY.bg}/>
             <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",lineHeight:1.1}}>
               <span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:isMobileFullScreen?18:15,color:COZY.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>tutor{chatContext ? (chatContext.tipo==="flashcard" ? " — flashcard" : chatContext.enunciado ? " — questão" : "") : ""}</span>
-              <span style={{fontSize:9,color:COZY.peach,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:600,marginTop:2}}>○ haiku 4.5</span>
+              <span style={{fontSize:9,color:COZY.peach,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:600,marginTop:2}}>○ sonnet 4.5</span>
             </div>
             {chatMessages.length > 0 && !tutorMin && (
               <button title="Nova conversa" onClick={() => { if (confirm("Apagar histórico desta conversa?")) { setChatMessages([]); setPendingFlashcard(null); sessionStorage.removeItem(CHAT_SS_KEY); }}} style={{background:"transparent",border:`1px solid ${COZY.line}`,color:COZY.textMute,fontSize:10,padding:"2px 7px",borderRadius:5,cursor:"pointer"}}>nova</button>
