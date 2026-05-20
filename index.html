@@ -644,6 +644,14 @@ async function repoUpdate(repo, cards, deletedIds) {
 }
 
 // Mescla dois conjuntos (local + remoto) respeitando updatedAt e deletedIds
+// Une dois históricos por `ts` (nunca perde entries, mesmo em ping-pong sync)
+function mergeHistorico(a, b) {
+  const map = new Map();
+  for (const h of (a || [])) if (h && h.ts) map.set(h.ts, h);
+  for (const h of (b || [])) if (h && h.ts && !map.has(h.ts)) map.set(h.ts, h);
+  return [...map.values()].sort((x, y) => (x.ts || "").localeCompare(y.ts || ""));
+}
+
 function mergeData(local, remote) {
   const map = new Map(); // id → card
   for (const c of local.cards || []) map.set(c.id, c);
@@ -652,7 +660,10 @@ function mergeData(local, remote) {
     if (!cur) { map.set(c.id, c); continue; }
     const a = cur.updatedAt || cur.createdAt || "";
     const b = c.updatedAt || c.createdAt || "";
-    if (b > a) map.set(c.id, c);
+    // Histórico SEMPRE é união (audit trail — nunca se perde, mesmo se sync sobrescrever SM-2)
+    const historico = mergeHistorico(cur.historico, c.historico);
+    if (b > a) map.set(c.id, { ...c, historico });
+    else map.set(c.id, { ...cur, historico });
   }
   const deletedIds = { ...(local.deletedIds || {}), ...(remote.deletedIds || {}) };
   // Pra cada id, mantém timestamp mais recente
@@ -842,6 +853,13 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
     const el = editorRef.current;
     if (el && el.innerHTML !== (value?.html || "")) el.innerHTML = value?.html || "";
   }, []);
+  // Re-sync se value.html mudar externamente (ex: sugestão da IA via "Aplicar")
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    if (document.activeElement === el) return;
+    if (el.innerHTML !== (value?.html || "")) el.innerHTML = value?.html || "";
+  }, [value?.html]);
   const execCmd = (cmd, arg=null) => { editorRef.current?.focus(); document.execCommand(cmd, false, arg); sync(); };
   const sync = () => { const h = editorRef.current?.innerHTML || ""; onChange({...(value||{}), html: h}); };
   function handlePaste(e) {
@@ -1201,6 +1219,77 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Painel de histórico de revisões/edições de um card (audit trail).
+function HistoricoPanel({historico}) {
+  const [open, setOpen] = useState(false);
+  const items = [...(historico || [])].reverse();
+  const gradeLabel = { 0: "errei", 2: "difícil", 3: "bom", 4: "fácil" };
+  const gradeColor = { 0: "#d9a3a3", 2: "#e8d5a3", 3: "#a8c4a2", 4: "#e8b69a" };
+  const kindLabel = { grade: "revisão", edit: "edição", reset: "reset", import: "import" };
+  const fmtData = (d) => {
+    if (!d) return "?";
+    const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}` : d;
+  };
+  const fmtHora = (ts) => {
+    if (!ts) return "";
+    const m = String(ts).match(/T(\d{2}):(\d{2})/);
+    return m ? ` ${m[1]}:${m[2]}` : "";
+  };
+  return (
+    <div style={{marginTop:10,borderTop:"1px dashed #324239",paddingTop:8}}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{background:"none",border:"none",color:"#8d9890",cursor:"pointer",fontSize:11,fontFamily:"ui-monospace,monospace",padding:0,display:"flex",alignItems:"center",gap:6}}>
+        {open ? "▼" : "▶"} 📜 histórico ({items.length})
+      </button>
+      {open && (
+        <div style={{marginTop:8,maxHeight:240,overflowY:"auto",fontFamily:"ui-monospace,monospace",fontSize:11,lineHeight:1.5,color:"#a8bdc4"}}>
+          {items.map((h, i) => {
+            const srcBadge = h.src ? <span style={{color:"#5e6f66",marginLeft:6,fontSize:9}}>[{h.src}]</span> : null;
+            if (h.kind === "grade") {
+              return (
+                <div key={i} style={{padding:"4px 6px",borderLeft:`2px solid ${gradeColor[h.grade]||"#3d5048"}`,marginBottom:3,background:"#1d2a26",borderRadius:"0 4px 4px 0"}}>
+                  <span style={{color:"#c9bfa6"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
+                  <span style={{color:gradeColor[h.grade]||"#a8bdc4",marginLeft:8,fontWeight:600}}>{gradeLabel[h.grade]||`g${h.grade}`}</span>
+                  {srcBadge}
+                  <span style={{color:"#5e6f66",marginLeft:8}}>·</span>
+                  <span style={{marginLeft:8}}>{h.intAntes}d → <strong style={{color:"#f0e6d2"}}>{h.intDepois}d</strong></span>
+                  <span style={{color:"#5e6f66",marginLeft:8}}>rep {h.repAntes}→{h.repDepois}</span>
+                </div>
+              );
+            }
+            if (h.kind === "edit") {
+              return (
+                <div key={i} style={{padding:"4px 6px",borderLeft:"2px solid #8d9890",marginBottom:3,background:"#1d2a26",borderRadius:"0 4px 4px 0"}}>
+                  <span style={{color:"#c9bfa6"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
+                  <span style={{color:"#8d9890",marginLeft:8,fontWeight:600}}>edição</span>
+                  {srcBadge}
+                  <span style={{color:"#5e6f66",marginLeft:8}}>({(h.campos||[]).join(", ")})</span>
+                </div>
+              );
+            }
+            if (h.kind === "reset") {
+              return (
+                <div key={i} style={{padding:"4px 6px",borderLeft:"2px solid #d9a3a3",marginBottom:3,background:"#1d2a26",borderRadius:"0 4px 4px 0"}}>
+                  <span style={{color:"#c9bfa6"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
+                  <span style={{color:"#d9a3a3",marginLeft:8,fontWeight:600}}>RESET</span>
+                  {srcBadge}
+                  <span style={{color:"#5e6f66",marginLeft:8}}>({h.motivo||"?"})</span>
+                </div>
+              );
+            }
+            return (
+              <div key={i} style={{padding:"4px 6px",color:"#5e6f66"}}>
+                {fmtData(h.data)} · {kindLabel[h.kind]||h.kind} {srcBadge}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -1953,8 +2042,25 @@ Retorne SOMENTE um JSON (sem markdown):
 
   function gradeCard(grade) {
     const card = reviewQueue[reviewIdx];
-    const updated = {...card, ...calcNextReview(card, grade), updatedAt: nowIso()};
-    setCards(prev => prev.map(c => c.id===card.id ? updated : c));
+    // Ler do prev (não do snapshot do reviewQueue) pra não clobbar updates concorrentes
+    setCards(prev => prev.map(c => {
+      if (c.id !== card.id) return c;
+      const next = calcNextReview(c, grade);
+      const entry = {
+        ts: nowIso(),
+        data: today(),
+        kind: "grade",
+        grade,
+        intAntes: c.interval || 1,
+        intDepois: next.interval,
+        repAntes: c.repetitions || 0,
+        repDepois: next.repetitions,
+        easeAntes: Number((c.easeFactor || 2.5).toFixed(2)),
+        easeDepois: Number(next.easeFactor.toFixed(2)),
+        src: "mobile",
+      };
+      return { ...c, ...next, historico: [...(c.historico || []), entry], updatedAt: nowIso() };
+    }));
     if (reviewIdx+1 < reviewQueue.length) { setReviewIdx(i => i+1); setShowAnswer(false); }
     else setView("reviewDone");
   }
@@ -2127,7 +2233,14 @@ Retorne SOMENTE um JSON (sem markdown):
   }
 
   function saveEditedCard(id, fields) {
-    setCards(prev => prev.map(c => c.id === id ? {...c, ...fields, updatedAt: nowIso()} : c));
+    const entry = {
+      ts: nowIso(), data: today(), kind: "edit",
+      campos: Object.keys(fields).filter(k => fields[k] !== undefined),
+      frente: fields.frente, verso: fields.verso, src: "mobile",
+    };
+    setCards(prev => prev.map(c => c.id === id
+      ? {...c, ...fields, historico: [...(c.historico || []), entry], updatedAt: nowIso()}
+      : c));
     // Também atualiza no reviewQueue (caso o user esteja editando durante a revisão)
     setReviewQueue(prev => prev.map(c => c.id === id ? {...c, ...fields, updatedAt: nowIso()} : c));
     setEditingCard(null);
@@ -2868,6 +2981,7 @@ Retorne SOMENTE um JSON (sem markdown):
                           <button title="Copiar verso" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pV, c.verso);}}>📋</button>
                         </div>
                         {c.versoImg && <img src={c.versoImg} onClick={() => setLightbox(c.versoImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,cursor:"zoom-in"}} alt="verso"/>}
+                        {(c.historico && c.historico.length > 0) && <HistoricoPanel historico={c.historico}/>}
                       </div>
                     )}
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,gap:8,flexWrap:"wrap"}} onClick={e => e.stopPropagation()}>
