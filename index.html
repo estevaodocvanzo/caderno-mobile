@@ -1199,6 +1199,59 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={S.card}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>🏖️ Adiar revisões (férias / simulado)</p>
+          <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
+            Empurra pra frente os cards que cairiam nos próximos <strong style={{color:"#e8b69a"}}>N</strong> dias. <strong style={{color:"#a8c4a2"}}>Preserva SM-2</strong> (interval/rep/ease intactos) — só desloca o calendário. Cards já agendados pra depois desse período ficam intocados.
+          </p>
+          <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:"#8d9890"}}>Adiar por</span>
+            <input type="number" min="1" max="60" defaultValue="1" id="defer-days" style={{width:60,background:"#243530",border:"1px solid #3d5048",color:"#f0e6d2",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
+            <span style={{fontSize:12,color:"#8d9890"}}>dia(s)</span>
+          </div>
+          {(() => {
+            const t = today();
+            const dueHoje = cards.filter(c => c.tipo !== "questao" && c.nextReview <= t).length;
+            return (
+              <p style={{fontSize:11,color:"#5e6f66",margin:"8px 0 0",fontFamily:"ui-monospace,monospace"}}>
+                hoje: {dueHoje} due · use N=2 ou mais pra incluir os próximos dias
+              </p>
+            );
+          })()}
+          <button style={{...S.btn(),width:"100%",marginTop:10}} onClick={() => {
+            const days = parseInt(document.getElementById("defer-days").value || "1", 10);
+            if (!days || days < 1 || days > 60) { showToast("Número de dias inválido (1-60)"); return; }
+            const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            const cutoffDate = new Date(); cutoffDate.setDate(cutoffDate.getDate() + (days - 1));
+            const cutoffStr = fmtDate(cutoffDate);
+            const afetados = cards.filter(c => c.tipo !== "questao" && c.nextReview <= cutoffStr);
+            if (afetados.length === 0) { showToast("Nenhum card cai nesse período 🎉"); return; }
+            if (!confirm(`Adiar ${afetados.length} cards em ${days} dia(s)?\n\n✓ SM-2 PRESERVADO (interval/rep/ease intactos)\n✓ Só desloca nextReview pra frente\n✓ Cards agendados após hoje+${days-1}d ficam intocados`)) return;
+            const afetadosIds = new Set(afetados.map(c => c.id));
+            setCards(prev => prev.map(c => {
+              if (!afetadosIds.has(c.id)) return c;
+              const atual = c.nextReview ? new Date(c.nextReview + "T00:00:00") : new Date();
+              atual.setDate(atual.getDate() + days);
+              const novoNextReview = fmtDate(atual);
+              const entry = {
+                ts: nowIso(), data: today(), kind: "defer",
+                motivo: `adiar-${days}d`,
+                dias: days,
+                nextReviewAntes: c.nextReview || null,
+                nextReviewDepois: novoNextReview,
+                src: "mobile",
+              };
+              return {
+                ...c,
+                nextReview: novoNextReview,
+                historico: [...(c.historico || []), entry],
+                updatedAt: nowIso(),
+              };
+            }));
+            showToast(`✓ ${afetados.length} cards adiados em ${days} dia(s)`);
+          }}>🏖️ Adiar agora</button>
+        </div>
+
+        <div style={S.card}>
           <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>💾 Backup dos dados</p>
           <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
             Total: <strong style={{color:"#a8bdc4"}}>{cards.length}</strong> itens. Recomendado exportar 1x por semana.
