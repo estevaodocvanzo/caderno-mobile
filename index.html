@@ -1201,7 +1201,7 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         <div style={S.card}>
           <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>🏖️ Adiar revisões (férias / simulado)</p>
           <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
-            Empurra pra frente os cards que cairiam nos próximos <strong style={{color:"#e8b69a"}}>N</strong> dias. <strong style={{color:"#a8c4a2"}}>Preserva SM-2</strong> (interval/rep/ease intactos) — só desloca o calendário. Cards já agendados pra depois desse período ficam intocados.
+            Desloca o <strong style={{color:"#e8b69a"}}>calendário inteiro</strong> em N dias. Cards de ontem viram hoje, de hoje viram amanhã, de amanhã vão pra depois — tudo +N. <strong style={{color:"#a8c4a2"}}>Preserva SM-2</strong> (interval/rep/ease intactos).
           </p>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
             <span style={{fontSize:12,color:"#8d9890"}}>Adiar por</span>
@@ -1209,11 +1209,12 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             <span style={{fontSize:12,color:"#8d9890"}}>dia(s)</span>
           </div>
           {(() => {
+            const totalFlashcards = cards.filter(c => c.tipo !== "questao").length;
             const t = today();
             const dueHoje = cards.filter(c => c.tipo !== "questao" && c.nextReview <= t).length;
             return (
               <p style={{fontSize:11,color:"#5e6f66",margin:"8px 0 0",fontFamily:"ui-monospace,monospace"}}>
-                hoje: {dueHoje} due · use N=2 ou mais pra incluir os próximos dias
+                {totalFlashcards} flashcards no total · {dueHoje} due hoje
               </p>
             );
           })()}
@@ -1221,22 +1222,22 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             const days = parseInt(document.getElementById("defer-days").value || "1", 10);
             if (!days || days < 1 || days > 60) { showToast("Número de dias inválido (1-60)"); return; }
             const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-            const cutoffDate = new Date(); cutoffDate.setDate(cutoffDate.getDate() + (days - 1));
-            const cutoffStr = fmtDate(cutoffDate);
-            const afetados = cards.filter(c => c.tipo !== "questao" && c.nextReview <= cutoffStr);
-            if (afetados.length === 0) { showToast("Nenhum card cai nesse período 🎉"); return; }
-            if (!confirm(`Adiar ${afetados.length} cards em ${days} dia(s)?\n\n✓ SM-2 PRESERVADO (interval/rep/ease intactos)\n✓ Só desloca nextReview pra frente\n✓ Cards agendados após hoje+${days-1}d ficam intocados`)) return;
-            const afetadosIds = new Set(afetados.map(c => c.id));
+            const afetados = cards.filter(c => c.tipo !== "questao" && c.nextReview);
+            if (afetados.length === 0) { showToast("Nenhum flashcard pra adiar 🎉"); return; }
+            if (!confirm(`Adiar TODOS os ${afetados.length} flashcards em ${days} dia(s)?\n\n✓ Calendário inteiro desloca +${days}d\n✓ SM-2 PRESERVADO (interval/rep/ease intactos)\n✓ Cards atrasados continuam atrasados (deslocados, mas ainda no passado se eram muito antigos)`)) return;
+            const todayStr = today();
             setCards(prev => prev.map(c => {
-              if (!afetadosIds.has(c.id)) return c;
-              const atual = c.nextReview ? new Date(c.nextReview + "T00:00:00") : new Date();
+              if (c.tipo === "questao" || !c.nextReview) return c;
+              const jaDeferred = (c.historico || []).some(h => h.kind === "defer" && h.data === todayStr && h.dias === days);
+              if (jaDeferred) return c;
+              const atual = new Date(c.nextReview + "T00:00:00");
               atual.setDate(atual.getDate() + days);
               const novoNextReview = fmtDate(atual);
               const entry = {
-                ts: nowIso(), data: today(), kind: "defer",
-                motivo: `adiar-${days}d`,
+                ts: nowIso(), data: todayStr, kind: "defer",
+                motivo: `adiar-${days}d-todos`,
                 dias: days,
-                nextReviewAntes: c.nextReview || null,
+                nextReviewAntes: c.nextReview,
                 nextReviewDepois: novoNextReview,
                 src: "mobile",
               };
@@ -1247,8 +1248,64 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
                 updatedAt: nowIso(),
               };
             }));
-            showToast(`✓ ${afetados.length} cards adiados em ${days} dia(s)`);
-          }}>🏖️ Adiar agora</button>
+            showToast(`✓ ${afetados.length} flashcards adiados em ${days} dia(s)`);
+          }}>🏖️ Adiar todos agora</button>
+
+          {(() => {
+            const t = today();
+            const cutoffDate = new Date(); cutoffDate.setDate(cutoffDate.getDate() - 7);
+            const cutoffStr = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth()+1).padStart(2,"0")}-${String(cutoffDate.getDate()).padStart(2,"0")}`;
+            const defersByDate = new Map();
+            for (const c of cards) {
+              if (c.tipo === "questao") continue;
+              for (const h of (c.historico || [])) {
+                if (h.kind !== "defer" || !h.data || h.data < cutoffStr || h.data >= t) continue;
+                if (!defersByDate.has(h.data)) defersByDate.set(h.data, { dias: h.dias || 1, count: 0 });
+                defersByDate.get(h.data).count++;
+              }
+            }
+            if (defersByDate.size === 0) return null;
+            const dates = [...defersByDate.keys()].sort();
+            const lastDate = dates[dates.length - 1];
+            const lastInfo = defersByDate.get(lastDate);
+            const semDefer = cards.filter(c => c.tipo !== "questao" && c.nextReview && !(c.historico || []).some(h => h.kind === "defer" && h.data === lastDate));
+            if (semDefer.length === 0) return null;
+            return (
+              <>
+                <div style={{height:1,background:"#3d5048",margin:"14px 0"}}/>
+                <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
+                  <strong style={{color:"#e8d5a3"}}>🩹 Defer recente detectado</strong> em <code style={{background:"#243530",padding:"1px 5px",borderRadius:4,fontSize:11}}>{lastDate}</code> ({lastInfo.count} cards adiados em {lastInfo.dias} dia(s) — Opção A antiga). <strong>{semDefer.length} cards no futuro não foram tocados</strong> e ainda têm o calendário "errado". Aplicar +{lastInfo.dias}d retroativamente neles pra calendário ficar consistente?
+                </p>
+                <button style={{...S.btn("accent"),width:"100%"}} onClick={() => {
+                  if (!confirm(`Aplicar +${lastInfo.dias}d em ${semDefer.length} cards que perderam o defer de ${lastDate}?\n\n✓ Só afeta cards SEM entry de defer naquela data\n✓ Cards já deferred ficam intocados\n✓ Resultado: calendário inteiro fica como se Opção C tivesse sido usada em ${lastDate}`)) return;
+                  const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+                  const semDeferIds = new Set(semDefer.map(c => c.id));
+                  const todayStr = today();
+                  setCards(prev => prev.map(c => {
+                    if (!semDeferIds.has(c.id)) return c;
+                    const atual = new Date(c.nextReview + "T00:00:00");
+                    atual.setDate(atual.getDate() + lastInfo.dias);
+                    const novoNextReview = fmtDate(atual);
+                    const entry = {
+                      ts: nowIso(), data: todayStr, kind: "defer",
+                      motivo: `retroativa-correcao-${lastDate}`,
+                      dias: lastInfo.dias,
+                      nextReviewAntes: c.nextReview,
+                      nextReviewDepois: novoNextReview,
+                      src: "mobile",
+                    };
+                    return {
+                      ...c,
+                      nextReview: novoNextReview,
+                      historico: [...(c.historico || []), entry],
+                      updatedAt: nowIso(),
+                    };
+                  }));
+                  showToast(`✓ ${semDefer.length} cards corrigidos retroativamente`);
+                }}>🩹 Aplicar +{lastInfo.dias}d nos {semDefer.length} cards que faltaram</button>
+              </>
+            );
+          })()}
         </div>
 
         <div style={S.card}>
