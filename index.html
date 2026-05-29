@@ -240,6 +240,15 @@ const API_KEY_STORAGE = "anthropic_api_key";
 const GH_TOKEN_KEY = "github_gist_token";
 const GIST_ID_KEY = "github_gist_id";
 const LAST_SYNC_KEY = "last_gist_sync_at";
+const DAILY_LIMIT_KEY = "daily_review_limit";
+const getDailyLimit = () => {
+  const v = parseInt(localStorage.getItem(DAILY_LIMIT_KEY) || "0", 10);
+  return isNaN(v) || v < 0 ? 0 : v;
+};
+const saveDailyLimit = (n) => {
+  if (n && n > 0) localStorage.setItem(DAILY_LIMIT_KEY, String(n));
+  else localStorage.removeItem(DAILY_LIMIT_KEY);
+};
 
 const loadData = async () => {
   try {
@@ -953,6 +962,7 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
   const [gistId, setGistIdLocal] = useState(getGistId());
   const [repo, setRepoLocal] = useState(getRepo());
   const [syncBusy, setSyncBusy] = useState(false);
+  const [dailyLimit, setDailyLimitLocal] = useState(getDailyLimit());
   const importRef = useRef();
 
   function handleSaveKey() {
@@ -1199,6 +1209,32 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={S.card}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>📊 Ritmo de revisão</p>
+          <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
+            Visualize sua carga das próximas 8 semanas e defina um teto diário. Sem teto = revisa tudo que cai. Com teto = pega os mais atrasados primeiro até o limite. Os excedentes ficam atrasados sem multiplicar.
+          </p>
+          <ReviewLoadHeatmap cards={cards}/>
+          <div style={{marginTop:14,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:"#8d9890"}}>Limite diário</span>
+            <input type="number" min="0" max="500" value={dailyLimit||""} placeholder="0 = sem limite"
+              onChange={e => {
+                const v = e.target.value.replace(/[^0-9]/g,"");
+                const n = v === "" ? 0 : parseInt(v, 10);
+                setDailyLimitLocal(n);
+              }}
+              style={{width:90,background:"#243530",border:"1px solid #3d5048",color:"#f0e6d2",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
+            <span style={{fontSize:12,color:"#8d9890"}}>cards/dia</span>
+            <button style={{...S.btn("primary"),fontSize:12,padding:"6px 14px",marginLeft:"auto"}} onClick={() => {
+              saveDailyLimit(dailyLimit);
+              showToast(dailyLimit > 0 ? `✓ Limite salvo: ${dailyLimit} cards/dia` : "✓ Limite removido (sem teto)");
+            }}>Salvar</button>
+          </div>
+          <p style={{fontSize:10,color:"#5e6f66",fontFamily:"ui-monospace,monospace",margin:"8px 0 0",lineHeight:1.5}}>
+            critério de fila: mais atrasados primeiro (nextReview asc), depois embaralha dentro do mesmo dia
+          </p>
+        </div>
+
+        <div style={S.card}>
           <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>🏖️ Adiar revisões (férias / simulado)</p>
           <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
             Desloca o <strong style={{color:"#e8b69a"}}>calendário inteiro</strong> em N dias. Cards de ontem viram hoje, de hoje viram amanhã, de amanhã vão pra depois — tudo +N. <strong style={{color:"#a8c4a2"}}>Preserva SM-2</strong> (interval/rep/ease intactos).
@@ -1334,6 +1370,84 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
 }
 
 // Painel de histórico de revisões/edições de um card (audit trail).
+// Heatmap da carga de revisão (atrasados + próximos 56 dias)
+function ReviewLoadHeatmap({cards}) {
+  const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  const todayStr = today();
+  const fc = cards.filter(c => c.tipo !== "questao" && c.nextReview);
+  const counts = new Map();
+  for (const c of fc) counts.set(c.nextReview, (counts.get(c.nextReview) || 0) + 1);
+  const atrasados = fc.filter(c => c.nextReview < todayStr).length;
+  const days = [];
+  const d0 = new Date(todayStr + "T00:00:00");
+  let max = 0;
+  for (let i = 0; i < 56; i++) {
+    const d = new Date(d0); d.setDate(d.getDate() + i);
+    const ds = fmtDate(d);
+    const n = counts.get(ds) || 0;
+    if (n > max) max = n;
+    days.push({ ds, n, offset: i, date: d });
+  }
+  const totalProx7 = days.slice(0, 7).reduce((s, e) => s + e.n, 0);
+  const totalProx14 = days.slice(0, 14).reduce((s, e) => s + e.n, 0);
+  const totalProx30 = days.slice(0, 30).reduce((s, e) => s + e.n, 0);
+  const picoIdx = days.reduce((mi, e, i) => e.n > days[mi].n ? i : mi, 0);
+  const pico = days[picoIdx];
+  const cellColor = (n) => {
+    if (n === 0) return "#1d2a26";
+    const t = n / max;
+    if (t < 0.33) return "#3d5a48";
+    if (t < 0.66) return "#a8c4a2";
+    if (t < 0.85) return "#e8d5a3";
+    return "#e8b69a";
+  };
+  const monthLabel = (d) => ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][d.getMonth()];
+  return (
+    <div style={{marginTop:10}}>
+      <div style={{display:"flex",alignItems:"flex-end",gap:8,marginBottom:8}}>
+        {atrasados > 0 && (
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}} title={`${atrasados} cards atrasados`}>
+            <div style={{fontSize:9,color:"#d9a3a3",fontFamily:"ui-monospace,monospace"}}>atras</div>
+            <div style={{width:34,height:38,background:"#5a3030",border:"1px solid #d9a3a3",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"ui-monospace,monospace",fontSize:13,fontWeight:600,color:"#f0e6d2"}}>{atrasados}</div>
+          </div>
+        )}
+        <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(8, 1fr)",gridTemplateRows:"repeat(7, 1fr)",gridAutoFlow:"column",gap:2}}>
+          {days.map((e, i) => {
+            const isHoje = e.offset === 0;
+            const tip = `${e.ds}${isHoje ? " (hoje)" : ` (+${e.offset}d)`}: ${e.n} card${e.n===1?"":"s"}`;
+            return (
+              <div key={i} title={tip}
+                style={{
+                  background: cellColor(e.n),
+                  border: isHoje ? "1px solid #e8b69a" : "none",
+                  borderRadius: 2,
+                  minHeight: 14,
+                  fontSize: 8,
+                  fontFamily: "ui-monospace,monospace",
+                  color: e.n > 0 ? "#1d2a26" : "#3d5048",
+                  textAlign: "center",
+                  lineHeight: "14px",
+                  fontWeight: e.n > 0 ? 600 : 400,
+                }}>
+                {e.n > 0 ? e.n : ""}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:9,color:"#5e6f66",fontFamily:"ui-monospace,monospace",marginBottom:6}}>
+        <span>{monthLabel(days[0].date)}</span>
+        <span>→</span>
+        <span>{monthLabel(days[days.length-1].date)} (8 sem)</span>
+      </div>
+      <div style={{fontSize:11,color:"#8d9890",fontFamily:"ui-monospace,monospace",lineHeight:1.7}}>
+        <div>próx 7d: <strong style={{color:"#f0e6d2"}}>{totalProx7}</strong> ({(totalProx7/7).toFixed(1)}/dia) · próx 14d: {totalProx14} ({(totalProx14/14).toFixed(1)}/dia) · próx 30d: {totalProx30} ({(totalProx30/30).toFixed(1)}/dia)</div>
+        <div>pico: <strong style={{color:"#e8b69a"}}>{pico.n}</strong> em {pico.ds} (+{pico.offset}d)</div>
+      </div>
+    </div>
+  );
+}
+
 function HistoricoPanel({historico}) {
   const [open, setOpen] = useState(false);
   const items = [...(historico || [])].reverse();
@@ -2145,8 +2259,23 @@ Retorne SOMENTE um JSON (sem markdown):
   function startReview(tipo, limit) {
     const t = today();
     // Questões nunca entram no fluxo de revisão — só flashcards
-    const q = cards.filter(c => c.tipo !== "questao" && (tipo==="all"||c.tipo===tipo) && c.nextReview<=t).sort(() => Math.random()-0.5);
-    const queue = (limit && limit > 0 && limit < q.length) ? q.slice(0, limit) : q;
+    // Ordem: mais atrasado primeiro (nextReview asc), depois shuffle dentro do mesmo dia
+    const todos = cards.filter(c => c.tipo !== "questao" && (tipo==="all"||c.tipo===tipo) && c.nextReview<=t);
+    const porData = new Map();
+    for (const c of todos) {
+      const k = c.nextReview;
+      if (!porData.has(k)) porData.set(k, []);
+      porData.get(k).push(c);
+    }
+    const datasSorted = [...porData.keys()].sort();
+    const q = [];
+    for (const d of datasSorted) {
+      const grupo = porData.get(d);
+      grupo.sort(() => Math.random() - 0.5);
+      q.push(...grupo);
+    }
+    const effectiveLimit = (limit && limit > 0) ? limit : getDailyLimit();
+    const queue = (effectiveLimit && effectiveLimit > 0 && effectiveLimit < q.length) ? q.slice(0, effectiveLimit) : q;
     setReviewQueue(queue); setReviewIdx(0); setShowAnswer(false); setView("review");
   }
 
@@ -2754,6 +2883,17 @@ Retorne SOMENTE um JSON (sem markdown):
                 </div>
                 {dueToday > 0 && (
                   <div style={{marginTop:14}}>
+                    {(() => {
+                      const dl = getDailyLimit();
+                      if (dl > 0 && dl < dueToday) {
+                        return (
+                          <div style={{fontSize:10,color:COZY.textMute,marginBottom:6,fontFamily:COZY.fontMono,letterSpacing:"0.04em"}}>
+                            vai revisar até <strong style={{color:COZY.peach}}>{dl}</strong> (limite diário) de {dueToday} due
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                     <button className="cozy-pulse" style={{...S.btn("primary"),width:"100%",padding:"12px",fontSize:12,letterSpacing:"0.04em",textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:8}} onClick={() => startReview("flashcard")}>
                       começar revisão
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
