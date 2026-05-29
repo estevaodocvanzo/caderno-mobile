@@ -1455,6 +1455,67 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
           })()}
         </div>
 
+        {(() => {
+          const regressed = detectRegressedCards(cards);
+          if (regressed.length === 0) return null;
+          return (
+            <div style={S.card}>
+              <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>🔍 Cards regredidos detectados</p>
+              <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
+                <strong style={{color:"#feb2b2"}}>{regressed.length} cards</strong> têm SM-2 atual <strong>menor</strong> que o último registro do histórico. Sintoma de sync que sobrescreveu o estado correto. O histórico tem a verdade — pode restaurar.
+              </p>
+              <div style={{maxHeight:280,overflowY:"auto",border:"1px solid #3d5048",borderRadius:6,padding:8,marginBottom:10,background:"#1d2a26"}}>
+                {regressed.slice(0, 15).map(({card, currentRep, expectedRep, maxRep}, i) => (
+                  <div key={card.id} style={{padding:"6px 8px",borderBottom: i < regressed.slice(0,15).length-1 ? "1px solid #324239" : "none",fontSize:11,fontFamily:"ui-monospace,monospace",color:"#a8bdc4"}}>
+                    <div style={{color:"#f0e6d2",marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>
+                      {stripHtml(card.frente).slice(0, 60)}{stripHtml(card.frente).length > 60 ? "…" : ""}
+                    </div>
+                    <span style={{color:"#feb2b2"}}>rep atual: {currentRep}</span>
+                    <span style={{color:"#5e6f66"}}> · esperado: <strong style={{color:"#a8c4a2"}}>{expectedRep}</strong></span>
+                    <span style={{color:"#5e6f66"}}> · máx histórico: {maxRep}</span>
+                  </div>
+                ))}
+                {regressed.length > 15 && (
+                  <div style={{padding:"6px 8px",fontSize:10,color:"#5e6f66",fontFamily:"ui-monospace,monospace",fontStyle:"italic"}}>
+                    + {regressed.length - 15} mais (não mostrados)
+                  </div>
+                )}
+              </div>
+              <button style={{...S.btn("primary"),width:"100%"}} onClick={() => {
+                if (!confirm(`Restaurar ${regressed.length} cards regredidos via replay do histórico?\n\n✓ Lê o último kind:"grade" de cada card\n✓ Restaura interval/rep/ease pros valores registrados\n✓ Define nextReview = hoje + interval (libera espaço)\n✓ Loga entry kind:"restore" no histórico pra auditoria\n✓ Cards com reset depois do último grade são pulados (reset foi intencional)`)) return;
+                let restoredCount = 0;
+                const restoreMap = new Map();
+                for (const { card } of regressed) {
+                  const restored = restoreCardFromHistory(card);
+                  if (restored) {
+                    restoreMap.set(card.id, restored);
+                    restoredCount++;
+                  }
+                }
+                if (restoredCount === 0) { showToast("Nenhum card pôde ser restaurado (reset intencional após grade)"); return; }
+                const todayStr = today();
+                setCards(prev => prev.map(c => {
+                  const r = restoreMap.get(c.id);
+                  if (!r) return c;
+                  const entry = {
+                    ts: nowIso(), data: todayStr, kind: "restore",
+                    motivo: "regressao-detectada",
+                    intAntes: c.interval || 1, intDepois: r.interval,
+                    repAntes: c.repetitions || 0, repDepois: r.repetitions,
+                    easeAntes: Number((c.easeFactor || 2.5).toFixed(2)),
+                    easeDepois: Number(r.easeFactor.toFixed(2)),
+                    nextReviewAntes: c.nextReview || null,
+                    nextReviewDepois: r.nextReview,
+                    src: "mobile",
+                  };
+                  return { ...c, ...r, historico: [...(c.historico || []), entry], updatedAt: nowIso() };
+                }));
+                showToast(`✓ ${restoredCount} cards restaurados via histórico`);
+              }}>🔧 Restaurar {regressed.length} cards via histórico</button>
+            </div>
+          );
+        })()}
+
         <div style={S.card}>
           <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#f0e6d2"}}>💾 Backup dos dados</p>
           <p style={{fontSize:12,color:"#8d9890",marginBottom:10,lineHeight:1.5}}>
@@ -1481,6 +1542,46 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
 }
 
 // Painel de histórico de revisões/edições de um card (audit trail).
+// Detecta cards regredidos (audit trail check)
+function detectRegressedCards(cards) {
+  const out = [];
+  for (const c of cards) {
+    if (c.tipo === "questao") continue;
+    const hist = (c.historico || []).filter(e => e.kind === "grade" || e.kind === "reset");
+    if (hist.length === 0) continue;
+    const last = hist[hist.length - 1];
+    let expectedRep;
+    if (last.kind === "grade") expectedRep = last.repDepois;
+    else if (last.kind === "reset") expectedRep = 0;
+    else continue;
+    const currentRep = c.repetitions || 0;
+    if (currentRep < expectedRep) {
+      const allGrades = hist.filter(e => e.kind === "grade");
+      const maxRep = Math.max(0, ...allGrades.map(e => e.repDepois));
+      out.push({ card: c, currentRep, expectedRep, maxRep, lastEntry: last });
+    }
+  }
+  return out;
+}
+
+function restoreCardFromHistory(card) {
+  const hist = card.historico || [];
+  let lastGrade = null;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    if (hist[i].kind === "grade") { lastGrade = hist[i]; break; }
+    if (hist[i].kind === "reset") return null;
+  }
+  if (!lastGrade) return null;
+  const interval = lastGrade.intDepois || 1;
+  const d = new Date(); d.setDate(d.getDate() + interval);
+  return {
+    interval,
+    repetitions: lastGrade.repDepois || 0,
+    easeFactor: lastGrade.easeDepois || 2.5,
+    nextReview: localDateStr(d),
+  };
+}
+
 // Heatmap da carga de revisão (atrasados + próximos 56 dias)
 function ReviewLoadHeatmap({cards}) {
   const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
@@ -1564,7 +1665,7 @@ function HistoricoPanel({historico}) {
   const items = [...(historico || [])].reverse();
   const gradeLabel = { 0: "errei", 2: "difícil", 3: "bom", 4: "fácil" };
   const gradeColor = { 0: "#d9a3a3", 2: "#e8d5a3", 3: "#a8c4a2", 4: "#e8b69a" };
-  const kindLabel = { grade: "revisão", edit: "edição", reset: "reset", import: "import" };
+  const kindLabel = { grade: "revisão", edit: "edição", reset: "reset", import: "import", defer: "defer", restore: "restauração" };
   const fmtData = (d) => {
     if (!d) return "?";
     const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
