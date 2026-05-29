@@ -87,7 +87,15 @@ function fmtInterval(days) {
   return (y >= 10 ? Math.round(y) : y.toFixed(1).replace(/\.0$/, "")) + "a";
 }
 
-const today = () => new Date().toISOString().split("T")[0];
+// localDateStr: usa data LOCAL do navegador, não UTC. Evita drift entre 21h-24h BRT
+// onde toISOString.split() retornaria o dia seguinte.
+function localDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+const today = () => localDateStr(new Date());
 const nowIso = () => new Date().toISOString();
 const STORAGE_KEY = "residencia_v2";
 
@@ -565,8 +573,10 @@ async function repoGetFile(repo, name) {
   return { sha: r.data.sha, content: b64decode(r.data.content) };
 }
 
-// Cria/atualiza arquivo via PUT — com retry on 409 (conflito de SHA = outro device escreveu antes)
-async function repoPutFile(repo, name, content, sha, _retry) {
+// Cria/atualiza arquivo via PUT — com retry em SHA conflict (GitHub usa 409 OU 422
+// dependendo do caso; também pega mensagem "is at X but expected Y"). Faz até 3 tentativas.
+async function repoPutFile(repo, name, content, sha, attempt) {
+  attempt = attempt || 0;
   const body = {
     message: `update ${name}`,
     content: b64encode(content),
@@ -574,25 +584,31 @@ async function repoPutFile(repo, name, content, sha, _retry) {
   if (sha) body.sha = sha;
   const r = await callGithub("PUT", `/repos/${repo}/contents/${DATA_DIR}/${name}`, body);
   if (r.ok) return r.data?.content?.sha;
-  // 409 = SHA stale (outro device escreveu). Refetch SHA atual e retry uma vez.
-  if (r.status === 409 && !_retry) {
-    console.log(`[CAD] sync conflict em ${name}, refetch SHA e retry…`);
+  const errMsg = String(r.error || "");
+  const isShaConflict = r.status === 409 || r.status === 422 || /is at [a-f0-9]+ but expected/.test(errMsg);
+  if (isShaConflict && attempt < 3) {
+    console.log(`[CAD] sync conflict em ${name} (status ${r.status}, attempt ${attempt+1}), refetch SHA e retry…`);
+    await new Promise(res => setTimeout(res, 100 * Math.pow(4, attempt)));
     const fresh = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
     const freshSha = fresh.ok ? fresh.data?.sha : undefined;
-    return repoPutFile(repo, name, content, freshSha, true);
+    return repoPutFile(repo, name, content, freshSha, attempt + 1);
   }
-  throw new Error("Falha ao salvar " + name + ": " + (r.error || r.status));
+  throw new Error("Falha ao salvar " + name + ": " + (errMsg || r.status));
 }
 
-// Remove arquivo via DELETE — com retry on 409
-async function repoDeleteFile(repo, name, sha, _retry) {
+// Remove arquivo via DELETE — com retry em SHA conflict (409 OU 422)
+async function repoDeleteFile(repo, name, sha, attempt) {
+  attempt = attempt || 0;
   const r = await callGithub("DELETE", `/repos/${repo}/contents/${DATA_DIR}/${name}`, {
     message: `remove ${name}`, sha
   });
   if (r.ok) return true;
-  if (r.status === 409 && !_retry) {
+  const errMsg = String(r.error || "");
+  const isShaConflict = r.status === 409 || r.status === 422 || /is at [a-f0-9]+ but expected/.test(errMsg);
+  if (isShaConflict && attempt < 3) {
+    await new Promise(res => setTimeout(res, 100 * Math.pow(4, attempt)));
     const fresh = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
-    if (fresh.ok && fresh.data?.sha) return repoDeleteFile(repo, name, fresh.data.sha, true);
+    if (fresh.ok && fresh.data?.sha) return repoDeleteFile(repo, name, fresh.data.sha, attempt + 1);
     if (fresh.status === 404) return true; // já deletado
   }
   return false;
@@ -623,8 +639,106 @@ async function repoFetch(repo) {
   };
 }
 
-// Push: divide em parts e salva cada um. Remove parts órfãos.
+// Push ATÔMICO via Git Data API: meta + parts + remoção de órfãos em UM commit só.
+// Se o ref final colidir (outro device pushou no meio), refaz do zero até 3x.
+// Fallback pro caminho legado (Contents API multi-PUT) se o repo não tiver commits ainda.
 async function repoUpdate(repo, cards, deletedIds) {
+  const chunks = chunkCardsBytes(cards, REPO_PART_BYTES);
+  const partName = (i) => `${PART_PREFIX_REPO}${String(i + 1).padStart(3, "0")}.json`;
+  const meta = {
+    deletedIds: deletedIds || {},
+    version: 4,
+    savedAt: nowIso(),
+    totalCards: cards.length,
+    totalParts: chunks.length
+  };
+  const files = [
+    { path: `${DATA_DIR}/${META_FILENAME_REPO}`, content: JSON.stringify(meta) },
+    ...chunks.map((c, i) => ({ path: `${DATA_DIR}/${partName(i)}`, content: JSON.stringify(c) }))
+  ];
+  const wantedPaths = new Set(files.map(f => f.path));
+
+  // Descobre branch padrão
+  const repoInfo = await callGithub("GET", `/repos/${repo}`);
+  if (!repoInfo.ok) throw new Error("Falha ao ler repo: " + (repoInfo.error || repoInfo.status));
+  const branch = repoInfo.data?.default_branch || "main";
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // 1. HEAD da branch (cache-buster pra evitar resposta cacheada do Chrome em retry)
+    const refResp = await callGithub("GET", `/repos/${repo}/git/ref/heads/${branch}?_t=${Date.now()}`);
+    if (!refResp.ok) {
+      if (refResp.status === 404 || refResp.status === 409) {
+        // Repo vazio — cai pro legado, que cria os arquivos via Contents API
+        return await repoUpdateLegacy(repo, cards, deletedIds);
+      }
+      throw new Error("Falha ao ler ref: " + (refResp.error || refResp.status));
+    }
+    const baseCommitSha = refResp.data.object.sha;
+
+    // 2. Tree atual (pra descobrir órfãos sob data/)
+    const commitResp = await callGithub("GET", `/repos/${repo}/git/commits/${baseCommitSha}`);
+    if (!commitResp.ok) throw new Error("Falha ao ler commit: " + (commitResp.error || commitResp.status));
+    const baseTreeSha = commitResp.data.tree.sha;
+
+    const treeResp = await callGithub("GET", `/repos/${repo}/git/trees/${baseTreeSha}?recursive=1`);
+    if (!treeResp.ok) throw new Error("Falha ao ler tree: " + (treeResp.error || treeResp.status));
+    const orphanPaths = (treeResp.data.tree || [])
+      .filter(t => t.type === "blob"
+        && t.path.startsWith(`${DATA_DIR}/${PART_PREFIX_REPO}`)
+        && !wantedPaths.has(t.path))
+      .map(t => t.path);
+
+    // 3. Cria blobs em paralelo
+    const blobs = await Promise.all(files.map(async f => {
+      const r = await callGithub("POST", `/repos/${repo}/git/blobs`, {
+        content: b64encode(f.content),
+        encoding: "base64"
+      });
+      if (!r.ok) throw new Error(`Falha ao criar blob ${f.path}: ${r.error || r.status}`);
+      return { path: f.path, sha: r.data.sha };
+    }));
+
+    // 4. Nova tree (mantém o que já existe via base_tree; sha:null deleta)
+    const treeEntries = [
+      ...blobs.map(b => ({ path: b.path, mode: "100644", type: "blob", sha: b.sha })),
+      ...orphanPaths.map(p => ({ path: p, mode: "100644", type: "blob", sha: null }))
+    ];
+    const newTreeResp = await callGithub("POST", `/repos/${repo}/git/trees`, {
+      base_tree: baseTreeSha,
+      tree: treeEntries
+    });
+    if (!newTreeResp.ok) throw new Error(`Falha ao criar tree: ${newTreeResp.error || newTreeResp.status}`);
+
+    // 5. Novo commit
+    const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
+    const newCommitResp = await callGithub("POST", `/repos/${repo}/git/commits`, {
+      message: `sync ${cards.length} cards @ ${stamp}`,
+      tree: newTreeResp.data.sha,
+      parents: [baseCommitSha]
+    });
+    if (!newCommitResp.ok) throw new Error(`Falha ao criar commit: ${newCommitResp.error || newCommitResp.status}`);
+
+    // 6. Move o ref — etapa atômica. Se outro device pushou, GitHub rejeita.
+    const updateRefResp = await callGithub("PATCH", `/repos/${repo}/git/refs/heads/${branch}`, {
+      sha: newCommitResp.data.sha,
+      force: false
+    });
+    if (updateRefResp.ok) return true;
+
+    const errMsg = String(updateRefResp.error || "");
+    const conflict = updateRefResp.status === 422 || /fast.forward|update.is.at|not.a.fast.forward/i.test(errMsg);
+    if (conflict && attempt < 2) {
+      console.log(`[CAD] ref conflict (attempt ${attempt+1}/3), retry…`);
+      await new Promise(r => setTimeout(r, 200 * Math.pow(2, attempt)));
+      continue;
+    }
+    throw new Error(`Falha ao atualizar ref: ${errMsg || updateRefResp.status}`);
+  }
+  throw new Error("Sync falhou após 3 tentativas (repo concorrido demais?)");
+}
+
+// Fallback antigo (multi-PUT na Contents API) — usado quando o repo ainda não tem commits.
+async function repoUpdateLegacy(repo, cards, deletedIds) {
   const existing = await repoListData(repo);
   const chunks = chunkCardsBytes(cards, REPO_PART_BYTES);
   const partName = (i) => `${PART_PREFIX_REPO}${String(i + 1).padStart(3, "0")}.json`;
@@ -636,14 +750,11 @@ async function repoUpdate(repo, cards, deletedIds) {
     totalCards: cards.length,
     totalParts: chunks.length
   };
-  // Salva meta
   await repoPutFile(repo, META_FILENAME_REPO, JSON.stringify(meta), existing[META_FILENAME_REPO]);
-  // Salva parts
   for (let i = 0; i < chunks.length; i++) {
     const name = partName(i);
     await repoPutFile(repo, name, JSON.stringify(chunks[i]), existing[name]);
   }
-  // Remove parts órfãos
   for (const [name, sha] of Object.entries(existing)) {
     if (!newNames.has(name) && name.startsWith(PART_PREFIX_REPO)) {
       await repoDeleteFile(repo, name, sha);
@@ -1672,9 +1783,19 @@ function App() {
   const fileRef = useRef();
   const chatEndRef = useRef();
   const pushTimerRef = useRef(null);
+  const pushFlushNowRef = useRef(false);
+  // Serialização de pushes: evita N pushes simultâneos com mesmo parent SHA
+  const pushInFlightRef = useRef(false);
+  const pushQueuedRef = useRef(false);
+  // Refs do estado mais recente — push lê DAQUI (não do closure stale)
+  const cardsRef = useRef([]);
+  const deletedIdsRef = useRef({});
   const firstSaveSkipRef = useRef(true); // evita push imediatamente após load
 
-  // Load: primeiro local, depois tenta pull do Gist (se configurado) e mescla
+  // Load: primeiro local, depois tenta pull e mescla.
+  // CRÍTICO: re-lê localStorage AGORA após o fetch — se user revisou cards
+  // durante o pull (5-10s), esses grades estão na storage e precisam entrar
+  // no merge. Sem isso, mergeData(local stale, remote) clobba os grades.
   useEffect(() => {
     (async () => {
       const local = await loadData();
@@ -1686,7 +1807,9 @@ function App() {
         setSyncState(s => ({ ...s, status: "syncing", error: "" }));
         try {
           const remote = getRepo() ? await repoFetch(getRepo()) : await gistFetch(getGistId());
-          const merged = mergeData(local, remote);
+          // Re-lê localStorage AGORA (não usa o snapshot stale `local`)
+          const freshLocal = await loadData();
+          const merged = mergeData(freshLocal, remote);
           setCards(merged.cards);
           setDeletedIds(merged.deletedIds);
           const ts = nowIso();
@@ -1701,31 +1824,51 @@ function App() {
     })();
   }, []);
 
-  // Save local imediato + push debounced pro Gist
+  // Save local imediato + push serializado (refs sempre apontam pro estado mais novo)
   useEffect(() => {
     if (!loaded) return;
+    cardsRef.current = cards;
+    deletedIdsRef.current = deletedIds;
     saveData({ cards, deletedIds });
     if (firstSaveSkipRef.current) { firstSaveSkipRef.current = false; return; }
     if (!getGhToken() || (!getRepo() && !getGistId())) return;
 
     if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
-    pushTimerRef.current = setTimeout(async () => {
-      setSyncState(s => ({ ...s, status: "syncing", error: "" }));
-      try {
-        if (getRepo()) {
-          await repoUpdate(getRepo(), cards, deletedIds);
-        } else {
-          await gistUpdate(getGistId(), cards, deletedIds);
-        }
-        const ts = nowIso();
-        saveLastSync(ts);
-        setSyncState({ status: "ok", error: "", lastSync: ts });
-      } catch (e) {
-        console.warn("Sync push falhou:", e);
-        setSyncState({ status: "error", error: e.message || String(e), lastSync: getLastSync() });
-      }
-    }, 3000);
+    const delay = pushFlushNowRef.current ? 0 : 1500;
+    pushFlushNowRef.current = false;
+    pushTimerRef.current = setTimeout(doPush, delay);
   }, [cards, deletedIds, loaded]);
+
+  // doPush serializado: se já tem push em flight, marca "tem mais um pendente"
+  // e dispara DEPOIS do atual terminar (usando o estado mais novo via refs).
+  // Sem isso, saves rápidos durante revisão geravam pushes paralelos com mesmo
+  // parent SHA → 422 "Update is not a fast forward" → backlog perdido.
+  async function doPush() {
+    if (pushInFlightRef.current) { pushQueuedRef.current = true; return; }
+    pushInFlightRef.current = true;
+    setSyncState(s => ({ ...s, status: "syncing", error: "" }));
+    try {
+      if (getRepo()) {
+        await repoUpdate(getRepo(), cardsRef.current, deletedIdsRef.current);
+      } else {
+        await gistUpdate(getGistId(), cardsRef.current, deletedIdsRef.current);
+      }
+      const ts = nowIso();
+      saveLastSync(ts);
+      setSyncState({ status: "ok", error: "", lastSync: ts });
+    } catch (e) {
+      console.warn("Sync push falhou:", e);
+      setSyncState({ status: "error", error: e.message || String(e), lastSync: getLastSync() });
+    } finally {
+      pushInFlightRef.current = false;
+      if (pushQueuedRef.current) {
+        pushQueuedRef.current = false;
+        // Coalesce: pequeno debounce pra agrupar saves rápidos consecutivos antes do próximo push
+        if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+        pushTimerRef.current = setTimeout(doPush, 500);
+      }
+    }
+  }
   useEffect(() => { if (chatOpen) setTimeout(() => chatEndRef.current?.scrollIntoView({behavior:"smooth"}), 50); }, [chatOpen, chatMessages]);
 
   // Lembrete de backup (se tem >5 cards e último backup foi há >7 dias)
@@ -2300,6 +2443,7 @@ Retorne SOMENTE um JSON (sem markdown):
       };
       return { ...c, ...next, historico: [...(c.historico || []), entry], updatedAt: nowIso() };
     }));
+    pushFlushNowRef.current = true; // força push imediato (sem esperar debounce)
     if (reviewIdx+1 < reviewQueue.length) { setReviewIdx(i => i+1); setShowAnswer(false); }
     else setView("reviewDone");
   }
@@ -2482,6 +2626,7 @@ Retorne SOMENTE um JSON (sem markdown):
       : c));
     // Também atualiza no reviewQueue (caso o user esteja editando durante a revisão)
     setReviewQueue(prev => prev.map(c => c.id === id ? {...c, ...fields, updatedAt: nowIso()} : c));
+    pushFlushNowRef.current = true; // push imediato pra evitar perda
     setEditingCard(null);
     showToast("Flashcard atualizado!");
   }
