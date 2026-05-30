@@ -718,7 +718,20 @@ async function repoUpdate(repo, cards, deletedIds) {
       }
       throw new Error(`Falha ao criar blob ${f.path} após 3 tentativas`);
     };
-    const blobs = await Promise.all(files.map(createBlobWithRetry));
+    // Pool com paralelismo limitado (3 simultâneos) — resolve falhas em redes
+    // ruins (4G/tethering): operadora abate metade de POSTs paralelos com
+    // payloads grandes por carrier NAT/MTU/inspeção.
+    const PARALLEL_BLOBS = 3;
+    const blobs = new Array(files.length);
+    let nextIdx = 0;
+    async function worker() {
+      while (true) {
+        const i = nextIdx++;
+        if (i >= files.length) return;
+        blobs[i] = await createBlobWithRetry(files[i]);
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_BLOBS, files.length) }, () => worker()));
 
     // 4. Nova tree (mantém o que já existe via base_tree; sha:null deleta)
     const treeEntries = [
