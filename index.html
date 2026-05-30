@@ -321,6 +321,17 @@ const saveRepo = (r) => { const v = (r || "").trim(); if (v) localStorage.setIte
 // base64 UTF-8 safe
 const b64encode = (s) => btoa(unescape(encodeURIComponent(s)));
 const b64decode = (b) => decodeURIComponent(escape(atob((b || "").replace(/\s/g, ""))));
+// Calcula SHA1 do conteúdo no formato git-blob, pra diff-push
+async function _gitBlobSha(content) {
+  const enc = new TextEncoder();
+  const contentBytes = enc.encode(content);
+  const header = enc.encode(`blob ${contentBytes.length}\0`);
+  const buf = new Uint8Array(header.length + contentBytes.length);
+  buf.set(header, 0);
+  buf.set(contentBytes, header.length);
+  const hash = await crypto.subtle.digest("SHA-1", buf);
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
 function chunkCardsBytes(cards, maxBytes) {
   const out = [];
   let cur = [], curBytes = 2;
@@ -682,15 +693,31 @@ async function repoUpdate(repo, cards, deletedIds) {
 
     const treeResp = await callGithub("GET", `/repos/${repo}/git/trees/${baseTreeSha}?recursive=1`);
     if (!treeResp.ok) throw new Error("Falha ao ler tree: " + (treeResp.error || treeResp.status));
-    const orphanPaths = (treeResp.data.tree || [])
-      .filter(t => t.type === "blob"
-        && t.path.startsWith(`${DATA_DIR}/${PART_PREFIX_REPO}`)
-        && !wantedPaths.has(t.path))
-      .map(t => t.path);
+    const existingShas = new Map();
+    for (const t of (treeResp.data.tree || [])) {
+      if (t.type === "blob") existingShas.set(t.path, t.sha);
+    }
+    const orphanPaths = [...existingShas.keys()]
+      .filter(p => p.startsWith(`${DATA_DIR}/${PART_PREFIX_REPO}`) && !wantedPaths.has(p));
 
-    // 3. Cria blobs em paralelo — cada um com retry individual (3 tentativas com backoff).
-    // Resolve "Failed to fetch" intermitente em accounts grandes (24+ parts em paralelo
-    // batem limite de conexão do Chrome).
+    // 3. DIFF: calcula SHA git-blob de cada file localmente, compara com tree atual.
+    // Só faz POST nos files que MUDARAM. 26→2 POSTs em uma sessão típica.
+    const filesWithSha = await Promise.all(files.map(async f => ({
+      ...f,
+      computedSha: await _gitBlobSha(f.content)
+    })));
+    const filesToUpload = [];
+    const reusedBlobs = [];
+    for (const f of filesWithSha) {
+      if (existingShas.get(f.path) === f.computedSha) {
+        reusedBlobs.push({ path: f.path, sha: f.computedSha });
+      } else {
+        filesToUpload.push(f);
+      }
+    }
+    console.log(`[CAD] diff push: ${filesToUpload.length} mudados, ${reusedBlobs.length} reusados (de ${files.length})`);
+
+    // 4. Cria blobs em paralelo — cada um com retry individual (3 tentativas com backoff).
     const createBlobWithRetry = async (f) => {
       const maxBlobAttempts = 3;
       for (let blobAttempt = 0; blobAttempt < maxBlobAttempts; blobAttempt++) {
@@ -722,18 +749,20 @@ async function repoUpdate(repo, cards, deletedIds) {
     // ruins (4G/tethering): operadora abate metade de POSTs paralelos com
     // payloads grandes por carrier NAT/MTU/inspeção.
     const PARALLEL_BLOBS = 3;
-    const blobs = new Array(files.length);
+    const uploadedBlobs = new Array(filesToUpload.length);
     let nextIdx = 0;
     async function worker() {
       while (true) {
         const i = nextIdx++;
-        if (i >= files.length) return;
-        blobs[i] = await createBlobWithRetry(files[i]);
+        if (i >= filesToUpload.length) return;
+        uploadedBlobs[i] = await createBlobWithRetry(filesToUpload[i]);
       }
     }
-    await Promise.all(Array.from({ length: Math.min(PARALLEL_BLOBS, files.length) }, () => worker()));
+    await Promise.all(Array.from({ length: Math.min(PARALLEL_BLOBS, filesToUpload.length) }, () => worker()));
 
-    // 4. Nova tree (mantém o que já existe via base_tree; sha:null deleta)
+    const blobs = [...reusedBlobs, ...uploadedBlobs];
+
+    // 5. Nova tree (mantém o que já existe via base_tree; sha:null deleta)
     const treeEntries = [
       ...blobs.map(b => ({ path: b.path, mode: "100644", type: "blob", sha: b.sha })),
       ...orphanPaths.map(p => ({ path: p, mode: "100644", type: "blob", sha: null }))
