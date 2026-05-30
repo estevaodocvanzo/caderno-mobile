@@ -688,15 +688,37 @@ async function repoUpdate(repo, cards, deletedIds) {
         && !wantedPaths.has(t.path))
       .map(t => t.path);
 
-    // 3. Cria blobs em paralelo
-    const blobs = await Promise.all(files.map(async f => {
-      const r = await callGithub("POST", `/repos/${repo}/git/blobs`, {
-        content: b64encode(f.content),
-        encoding: "base64"
-      });
-      if (!r.ok) throw new Error(`Falha ao criar blob ${f.path}: ${r.error || r.status}`);
-      return { path: f.path, sha: r.data.sha };
-    }));
+    // 3. Cria blobs em paralelo — cada um com retry individual (3 tentativas com backoff).
+    // Resolve "Failed to fetch" intermitente em accounts grandes (24+ parts em paralelo
+    // batem limite de conexão do Chrome).
+    const createBlobWithRetry = async (f) => {
+      const maxBlobAttempts = 3;
+      for (let blobAttempt = 0; blobAttempt < maxBlobAttempts; blobAttempt++) {
+        try {
+          const r = await callGithub("POST", `/repos/${repo}/git/blobs`, {
+            content: b64encode(f.content),
+            encoding: "base64"
+          });
+          if (r.ok) return { path: f.path, sha: r.data.sha };
+          const errMsg = String(r.error || "");
+          const transient = !r.status || r.status === 502 || r.status === 503 || r.status === 504 || /failed to fetch|network/i.test(errMsg);
+          if (transient && blobAttempt < maxBlobAttempts - 1) {
+            await new Promise(res => setTimeout(res, 300 * Math.pow(2, blobAttempt)));
+            continue;
+          }
+          throw new Error(`Falha ao criar blob ${f.path}: ${errMsg || r.status}`);
+        } catch (e) {
+          const isFetchError = /failed to fetch|network/i.test(e.message || "");
+          if (isFetchError && blobAttempt < maxBlobAttempts - 1) {
+            await new Promise(res => setTimeout(res, 300 * Math.pow(2, blobAttempt)));
+            continue;
+          }
+          throw e;
+        }
+      }
+      throw new Error(`Falha ao criar blob ${f.path} após 3 tentativas`);
+    };
+    const blobs = await Promise.all(files.map(createBlobWithRetry));
 
     // 4. Nova tree (mantém o que já existe via base_tree; sha:null deleta)
     const treeEntries = [
