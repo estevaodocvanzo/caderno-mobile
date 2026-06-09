@@ -2611,6 +2611,8 @@ Retorne SOMENTE um JSON (sem markdown):
         repDepois: next.repetitions,
         easeAntes: Number((c.easeFactor || 2.5).toFixed(2)),
         easeDepois: Number(next.easeFactor.toFixed(2)),
+        nextReviewAntes: c.nextReview || null,
+        nextReviewDepois: next.nextReview,
         src: "mobile",
       };
       return { ...c, ...next, historico: [...(c.historico || []), entry], updatedAt: nowIso() };
