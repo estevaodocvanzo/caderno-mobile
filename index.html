@@ -2037,8 +2037,9 @@ function App() {
       if (repo) {
         // ANTI-PING-PONG: se outro device pushou desde nosso último sync, puxa e
         // MESCLA antes de empurrar. Se o SHA não mudou, push direto (rápido).
+        // Mescla se o remoto difere do baseline (inclui baseline null = mais seguro)
         const remoteSha = await repoHeadSha(repo);
-        if (remoteSha && lastSyncedShaRef.current && remoteSha !== lastSyncedShaRef.current) {
+        if (remoteSha && remoteSha !== lastSyncedShaRef.current) {
           console.log("[CAD] remoto mudou (outro device pushou) — merge antes do push");
           const remote = await repoFetch(repo);
           const merged = mergeData({ cards: cardsRef.current, deletedIds: deletedIdsRef.current }, remote);
