@@ -657,6 +657,17 @@ async function repoFetch(repo) {
   };
 }
 
+// Lê só o SHA do commit HEAD (chamada leve). Detecta se outro device pushou.
+async function repoHeadSha(repo) {
+  try {
+    const repoInfo = await callGithub("GET", `/repos/${repo}`);
+    const branch = repoInfo.ok ? (repoInfo.data?.default_branch || "main") : "main";
+    const refResp = await callGithub("GET", `/repos/${repo}/git/ref/heads/${branch}?_t=${Date.now()}`);
+    if (refResp.ok) return refResp.data?.object?.sha || null;
+  } catch (_) {}
+  return null;
+}
+
 // Push ATÔMICO via Git Data API: meta + parts + remoção de órfãos em UM commit só.
 // Se o ref final colidir (outro device pushou no meio), refaz do zero até 3x.
 // Fallback pro caminho legado (Contents API multi-PUT) se o repo não tiver commits ainda.
@@ -794,7 +805,7 @@ async function repoUpdate(repo, cards, deletedIds) {
       sha: newCommitResp.data.sha,
       force: false
     });
-    if (updateRefResp.ok) return true;
+    if (updateRefResp.ok) return newCommitResp.data.sha;
 
     const errMsg = String(updateRefResp.error || "");
     const conflict = updateRefResp.status === 422 || /fast.forward|update.is.at|not.a.fast.forward/i.test(errMsg);
@@ -1963,6 +1974,7 @@ function App() {
   const cardsRef = useRef([]);
   const deletedIdsRef = useRef({});
   const firstSaveSkipRef = useRef(true); // evita push imediatamente após load
+  const lastSyncedShaRef = useRef(null); // SHA do commit em que nosso estado se baseia (anti-ping-pong)
 
   // Load: primeiro local, depois tenta pull e mescla.
   // CRÍTICO: re-lê localStorage AGORA após o fetch — se user revisou cards
@@ -1984,6 +1996,7 @@ function App() {
           const merged = mergeData(freshLocal, remote);
           setCards(merged.cards);
           setDeletedIds(merged.deletedIds);
+          if (getRepo()) { try { lastSyncedShaRef.current = await repoHeadSha(getRepo()); } catch (_) {} }
           const ts = nowIso();
           saveLastSync(ts);
           setSyncState({ status: "ok", error: "", lastSync: ts });
@@ -2020,8 +2033,24 @@ function App() {
     pushInFlightRef.current = true;
     setSyncState(s => ({ ...s, status: "syncing", error: "" }));
     try {
-      if (getRepo()) {
-        await repoUpdate(getRepo(), cardsRef.current, deletedIdsRef.current);
+      const repo = getRepo();
+      if (repo) {
+        // ANTI-PING-PONG: se outro device pushou desde nosso último sync, puxa e
+        // MESCLA antes de empurrar. Se o SHA não mudou, push direto (rápido).
+        const remoteSha = await repoHeadSha(repo);
+        if (remoteSha && lastSyncedShaRef.current && remoteSha !== lastSyncedShaRef.current) {
+          console.log("[CAD] remoto mudou (outro device pushou) — merge antes do push");
+          const remote = await repoFetch(repo);
+          const merged = mergeData({ cards: cardsRef.current, deletedIds: deletedIdsRef.current }, remote);
+          cardsRef.current = merged.cards;
+          deletedIdsRef.current = merged.deletedIds;
+          firstSaveSkipRef.current = true;
+          setCards(merged.cards);
+          setDeletedIds(merged.deletedIds);
+        }
+        const newSha = await repoUpdate(repo, cardsRef.current, deletedIdsRef.current);
+        if (typeof newSha === "string") lastSyncedShaRef.current = newSha;
+        else { try { lastSyncedShaRef.current = await repoHeadSha(repo); } catch (_) {} }
       } else {
         await gistUpdate(getGistId(), cardsRef.current, deletedIdsRef.current);
       }
