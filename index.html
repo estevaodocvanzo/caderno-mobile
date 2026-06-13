@@ -321,10 +321,16 @@ const saveRepo = (r) => { const v = (r || "").trim(); if (v) localStorage.setIte
 // base64 UTF-8 safe
 const b64encode = (s) => btoa(unescape(encodeURIComponent(s)));
 const b64decode = (b) => decodeURIComponent(escape(atob((b || "").replace(/\s/g, ""))));
-// Redimensiona/comprime imagem antes de armazenar (evita base64 gigante de fotos
-// que incham storage e estouram chunks de sync). Fallback pro cru se falhar.
-async function resizeImageToDataUrl(fileOrBlob, maxDim = 1600, quality = 0.8) {
+// Comprime só quando GRANDE. Imagens < 500KB (screenshots/texto) mantidas intactas
+// (sem perda). Fotos grandes redimensionadas a maxDim/JPEG. Fallback pro cru se falhar.
+const _blobToDataUrl = (b) => new Promise((res, rej) => {
+  const r = new FileReader(); r.onload = ev => res(ev.target.result); r.onerror = rej; r.readAsDataURL(b);
+});
+async function resizeImageToDataUrl(fileOrBlob, maxDim = 2000, quality = 0.82) {
   try {
+    if (fileOrBlob.size && fileOrBlob.size < 500 * 1024) {
+      return await _blobToDataUrl(fileOrBlob);
+    }
     const bitmap = await createImageBitmap(fileOrBlob);
     const { width: W, height: H } = bitmap;
     const scale = Math.min(1, maxDim / Math.max(W, H));
@@ -336,12 +342,12 @@ async function resizeImageToDataUrl(fileOrBlob, maxDim = 1600, quality = 0.8) {
     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);
     ctx.drawImage(bitmap, 0, 0, w, h);
     if (bitmap.close) bitmap.close();
-    return canvas.toDataURL("image/jpeg", quality);
+    const out = canvas.toDataURL("image/jpeg", quality);
+    const orig = await _blobToDataUrl(fileOrBlob);
+    return out.length < orig.length ? out : orig;
   } catch (e) {
     console.warn("[CAD] resizeImageToDataUrl falhou, usando cru:", e);
-    return await new Promise((res, rej) => {
-      const r = new FileReader(); r.onload = ev => res(ev.target.result); r.onerror = rej; r.readAsDataURL(fileOrBlob);
-    });
+    return await _blobToDataUrl(fileOrBlob);
   }
 }
 // Calcula SHA1 do conteúdo no formato git-blob, pra diff-push
@@ -2517,7 +2523,8 @@ Retorne SOMENTE um JSON (sem markdown):
   async function addImageFromFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
     const dataUrl = await resizeImageToDataUrl(file);
-    setAddImages(prev => [...prev, { dataUrl, mediaType: "image/jpeg" }]);
+    const mediaType = (dataUrl.match(/^data:(image\/[a-z+]+);/) || [])[1] || "image/jpeg";
+    setAddImages(prev => [...prev, { dataUrl, mediaType }]);
   }
   function handleAddPaste(e) {
     if (view !== "add") return;
