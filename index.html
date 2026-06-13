@@ -1064,27 +1064,28 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
   }, [value?.html]);
   const execCmd = (cmd, arg=null) => { editorRef.current?.focus(); document.execCommand(cmd, false, arg); sync(); };
   const sync = () => { const h = editorRef.current?.innerHTML || ""; onChange({...(value||{}), html: h}); };
+  const imgsAtuais = () => (value?.imgs || (value?.img ? [value.img] : []));
+  const addImgs = (dataUrls) => onChange({ ...(value||{}), imgs: [...imgsAtuais(), ...dataUrls], img: undefined });
+  const removeImgAt = (idx) => onChange({ ...(value||{}), imgs: imgsAtuais().filter((_, i) => i !== idx), img: undefined });
   function handlePaste(e) {
     const items = e.clipboardData?.items; if (!items) return;
-    for (const item of items) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const f = item.getAsFile();
-        const r = new FileReader();
-        r.onload = ev => onChange({...(value||{}), img: ev.target.result});
-        r.readAsDataURL(f);
-        return;
-      }
+    const imgItems = [...items].filter(it => it.type.startsWith("image/"));
+    if (imgItems.length > 0) {
+      e.preventDefault();
+      Promise.all(imgItems.map(it => new Promise(res => {
+        const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(it.getAsFile());
+      }))).then(addImgs);
+      return;
     }
     e.preventDefault();
     document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
     sync();
   }
   function handleFile(e) {
-    const f = e.target.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = ev => onChange({...(value||{}), img: ev.target.result});
-    r.readAsDataURL(f);
+    const files = [...e.target.files]; if (!files.length) return;
+    Promise.all(files.map(f => new Promise(res => {
+      const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(f);
+    }))).then(addImgs);
     e.target.value = "";
   }
   const bS = () => ({background:"#3d5048",border:"none",color:"#f0e6d2",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
@@ -1096,14 +1097,18 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
         <button style={{...bS(),fontSize:11,color:"#c9bfa6"}} onMouseDown={e => {e.preventDefault(); execCmd("removeFormat");}}>✕ fmt</button>
         <div style={{width:1,height:16,background:"#3d5048",margin:"0 2px"}}/>
         <button style={{...bS(),fontSize:11}} onMouseDown={e => {e.preventDefault(); fileRef.current.click();}}>📎 img</button>
-        <input ref={fileRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleFile}/>
+        <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
       </div>
       <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={sync} onPaste={handlePaste} data-placeholder={placeholder}
         style={{minHeight, padding:"9px 12px", color:"#f0e6d2", fontSize:14, outline:"none", lineHeight:1.6, wordBreak:"break-word", fontFamily:"system-ui,sans-serif", fontWeight:400}}/>
-      {value?.img && (
-        <div style={{position:"relative",padding:"0 10px 10px"}}>
-          <img src={value.img} style={{maxWidth:"100%",borderRadius:6,display:"block"}} alt="anexo"/>
-          <button style={{position:"absolute",top:4,right:14,background:"#d9a3a3",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => onChange({...value, img: null})}>✕</button>
+      {imgsAtuais().length > 0 && (
+        <div style={{display:"flex",flexWrap:"wrap",gap:8,padding:"0 10px 10px"}}>
+          {imgsAtuais().map((src, i) => (
+            <div key={i} style={{position:"relative"}}>
+              <img src={src} style={{maxWidth:"100%",maxHeight:200,borderRadius:6,display:"block"}} alt={`anexo ${i+1}`}/>
+              <button title="Remover imagem" style={{position:"absolute",top:4,right:4,background:"#d9a3a3",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => removeImgAt(i)}>✕</button>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -1813,8 +1818,8 @@ function HistoricoPanel({historico}) {
 }
 
 function FlashcardEditModal({card, onSave, onClose}) {
-  const [frente, setFrente] = useState({html: card.frente||"", img: card.frenteImg||null});
-  const [verso, setVerso] = useState({html: card.verso||"", img: card.versoImg||null});
+  const [frente, setFrente] = useState({html: card.frente||"", imgs: card.frenteImgs || (card.frenteImg ? [card.frenteImg] : [])});
+  const [verso, setVerso] = useState({html: card.verso||"", imgs: card.versoImgs || (card.versoImg ? [card.versoImg] : [])});
   const [chatOpen, setChatOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
@@ -1863,7 +1868,7 @@ function FlashcardEditModal({card, onSave, onClose}) {
             <RichEditor value={verso} onChange={setVerso} placeholder="Resposta…" minHeight={70}/>
             <div style={{display:"flex",gap:8,marginTop:18}}>
               <button style={{...S.btn(),flex:1,padding:11}} onClick={onClose}>Cancelar</button>
-              <button style={{...S.btn("primary"),flex:1,padding:11}} onClick={() => onSave({frente: frente.html, frenteImg: frente.img, verso: verso.html, versoImg: verso.img})}>Salvar</button>
+              <button style={{...S.btn("primary"),flex:1,padding:11}} onClick={() => onSave({frente: frente.html, frenteImgs: frente.imgs||[], frenteImg: null, verso: verso.html, versoImgs: verso.imgs||[], versoImg: null})}>Salvar</button>
             </div>
           </div>
         ) : (
@@ -3572,14 +3577,14 @@ Retorne SOMENTE um JSON (sem markdown):
                       <div style={{fontSize:13,fontWeight:500,color:"#f0e6d2",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.frente)}}/>
                       <button title="Copiar frente" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pF, c.frente);}}>📋</button>
                     </div>
-                    {c.frenteImg && <img src={c.frenteImg} onClick={() => setLightbox(c.frenteImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:6,cursor:"zoom-in"}} alt="frente"/>}
+                    {(c.frenteImgs || (c.frenteImg ? [c.frenteImg] : [])).map((src,i) => <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:6,marginRight:6,cursor:"zoom-in"}} alt="frente"/>)}
                     {exp && (
                       <div style={{marginTop:8,borderTop:"1px solid #324239",paddingTop:10}} onClick={e => e.stopPropagation()}>
                         <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
                           <div style={{fontSize:13,color:"#a8c4a2",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.verso)}}/>
                           <button title="Copiar verso" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pV, c.verso);}}>📋</button>
                         </div>
-                        {c.versoImg && <img src={c.versoImg} onClick={() => setLightbox(c.versoImg)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,cursor:"zoom-in"}} alt="verso"/>}
+                        {(c.versoImgs || (c.versoImg ? [c.versoImg] : [])).map((src,i) => <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,marginRight:6,cursor:"zoom-in"}} alt="verso"/>)}
                         {(c.historico && c.historico.length > 0) && <HistoricoPanel historico={c.historico}/>}
                       </div>
                     )}
@@ -3701,13 +3706,13 @@ Retorne SOMENTE um JSON (sem markdown):
                   <React.Fragment>
                     <div style={{fontSize:9,color:COZY.textFaint,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:14,fontWeight:600}}>frente</div>
                     <div style={{fontFamily:COZY.fontDisplay,fontWeight:400,fontSize:18,lineHeight:1.45,color:COZY.text,textAlign:"center"}} dangerouslySetInnerHTML={{__html: renderCardText(currentCard.frente)}}/>
-                    {currentCard.frenteImg && <img src={currentCard.frenteImg} onClick={() => setLightbox(currentCard.frenteImg)} style={{maxWidth:"100%",borderRadius:8,margin:"14px auto 0",display:"block",cursor:"zoom-in"}} alt="frente"/>}
+                    {(currentCard.frenteImgs || (currentCard.frenteImg ? [currentCard.frenteImg] : [])).map((src,i) => <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",borderRadius:8,margin:"14px auto 0",display:"block",cursor:"zoom-in"}} alt="frente"/>)}
                     {showAnswer && (
                       <React.Fragment>
                         <div style={{margin:"22px auto 14px",width:32,height:1,background:COZY.peach}}/>
                         <div style={{fontSize:9,color:COZY.peach,letterSpacing:"0.18em",textTransform:"uppercase",textAlign:"center",marginBottom:12,fontWeight:600}}>verso</div>
                         <div style={{fontSize:13,lineHeight:1.7,color:COZY.textSoft,textAlign:"left"}} dangerouslySetInnerHTML={{__html: renderCardText(currentCard.verso)}}/>
-                        {currentCard.versoImg && <img src={currentCard.versoImg} onClick={() => setLightbox(currentCard.versoImg)} style={{maxWidth:"100%",borderRadius:8,marginTop:12,cursor:"zoom-in"}} alt="verso"/>}
+                        {(currentCard.versoImgs || (currentCard.versoImg ? [currentCard.versoImg] : [])).map((src,i) => <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",borderRadius:8,marginTop:12,display:"block",cursor:"zoom-in"}} alt="verso"/>)}
                       </React.Fragment>
                     )}
                   </React.Fragment>
