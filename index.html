@@ -321,6 +321,29 @@ const saveRepo = (r) => { const v = (r || "").trim(); if (v) localStorage.setIte
 // base64 UTF-8 safe
 const b64encode = (s) => btoa(unescape(encodeURIComponent(s)));
 const b64decode = (b) => decodeURIComponent(escape(atob((b || "").replace(/\s/g, ""))));
+// Redimensiona/comprime imagem antes de armazenar (evita base64 gigante de fotos
+// que incham storage e estouram chunks de sync). Fallback pro cru se falhar.
+async function resizeImageToDataUrl(fileOrBlob, maxDim = 1600, quality = 0.8) {
+  try {
+    const bitmap = await createImageBitmap(fileOrBlob);
+    const { width: W, height: H } = bitmap;
+    const scale = Math.min(1, maxDim / Math.max(W, H));
+    const w = Math.max(1, Math.round(W * scale));
+    const h = Math.max(1, Math.round(H * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    if (bitmap.close) bitmap.close();
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch (e) {
+    console.warn("[CAD] resizeImageToDataUrl falhou, usando cru:", e);
+    return await new Promise((res, rej) => {
+      const r = new FileReader(); r.onload = ev => res(ev.target.result); r.onerror = rej; r.readAsDataURL(fileOrBlob);
+    });
+  }
+}
 // Calcula SHA1 do conteúdo no formato git-blob, pra diff-push
 async function _gitBlobSha(content) {
   const enc = new TextEncoder();
@@ -1072,9 +1095,7 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
     const imgItems = [...items].filter(it => it.type.startsWith("image/"));
     if (imgItems.length > 0) {
       e.preventDefault();
-      Promise.all(imgItems.map(it => new Promise(res => {
-        const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(it.getAsFile());
-      }))).then(addImgs);
+      Promise.all(imgItems.map(it => resizeImageToDataUrl(it.getAsFile()))).then(addImgs);
       return;
     }
     e.preventDefault();
@@ -1083,9 +1104,7 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
   }
   function handleFile(e) {
     const files = [...e.target.files]; if (!files.length) return;
-    Promise.all(files.map(f => new Promise(res => {
-      const r = new FileReader(); r.onload = ev => res(ev.target.result); r.readAsDataURL(f);
-    }))).then(addImgs);
+    Promise.all(files.map(f => resizeImageToDataUrl(f))).then(addImgs);
     e.target.value = "";
   }
   const bS = () => ({background:"#3d5048",border:"none",color:"#f0e6d2",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
@@ -1117,10 +1136,9 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
 
 function ComentarioSection({form, setForm}) {
   const fileRef = useRef();
-  function addImg(f) {
-    const r = new FileReader();
-    r.onload = ev => setForm(fr => ({...fr, comentarioImgs: [...(fr.comentarioImgs||[]), ev.target.result]}));
-    r.readAsDataURL(f);
+  async function addImg(f) {
+    const dataUrl = await resizeImageToDataUrl(f);
+    setForm(fr => ({...fr, comentarioImgs: [...(fr.comentarioImgs||[]), dataUrl]}));
   }
   function handleFile(e) { Array.from(e.target.files).forEach(addImg); e.target.value = ""; }
   function handlePaste(e) {
@@ -2495,15 +2513,11 @@ Retorne SOMENTE um JSON (sem markdown):
     setView("home");
   }
 
-  // Helpers de imagens da aba Adicionar — colar (paste) ou anexar (file input)
-  function addImageFromFile(file) {
+  // Helpers de imagens da aba Adicionar — comprime na entrada (storage + API)
+  async function addImageFromFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
-    if (file.size > 4_500_000) { alert("Imagem maior que 4.5 MB não suportada (limite da API). Reduza ou tire screenshot menor."); return; }
-    const r = new FileReader();
-    r.onload = ev => {
-      setAddImages(prev => [...prev, { dataUrl: ev.target.result, mediaType: file.type || "image/png" }]);
-    };
-    r.readAsDataURL(file);
+    const dataUrl = await resizeImageToDataUrl(file);
+    setAddImages(prev => [...prev, { dataUrl, mediaType: "image/jpeg" }]);
   }
   function handleAddPaste(e) {
     if (view !== "add") return;
@@ -2657,11 +2671,11 @@ Retorne SOMENTE um JSON (sem markdown):
     else setView("reviewDone");
   }
 
-  function addImgFile(f) {
-    setImgFiles(prev => [...prev, f]);
-    const r = new FileReader();
-    r.onload = ev => setImgPreviews(prev => [...prev, ev.target.result]);
-    r.readAsDataURL(f);
+  async function addImgFile(f) {
+    const dataUrl = await resizeImageToDataUrl(f);
+    const blob = await (await fetch(dataUrl)).blob();
+    setImgFiles(prev => [...prev, blob]);
+    setImgPreviews(prev => [...prev, dataUrl]);
   }
 
   function removeImgAt(i) {
