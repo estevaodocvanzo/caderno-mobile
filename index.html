@@ -972,11 +972,29 @@ function renderCardText(s) {
   return out;
 }
 
+// Parser ROBUSTO da sugestão de flashcard da IA (tolera markdown, maiúsc/minúsc,
+// sem marcadores). Retorna {frente, verso} ou null.
+function parseFlashcardSuggestion(reply) {
+  if (!reply) return null;
+  const bloco = reply.match(/---\s*FLASHCARD\s*---([\s\S]*?)(?:---\s*FIM\s*---|$)/i);
+  const src = bloco ? bloco[1] : reply;
+  const fM = src.match(/\**\s*frente\s*\**\s*[:\-–]\s*([\s\S]+?)(?=\n?\s*\**\s*verso\s*\**\s*[:\-–])/i);
+  const vM = src.match(/\**\s*verso\s*\**\s*[:\-–]\s*([\s\S]+?)(?=\n?\s*---\s*FIM|$)/i);
+  if (!fM || !vM) return null;
+  const limpa = s => s.replace(/\*\*/g, "").replace(/^\s*[-•*]\s*/, "").trim();
+  const frente = limpa(fM[1]), verso = limpa(vM[1]);
+  if (!frente || !verso) return null;
+  return { frente, verso };
+}
+function stripFlashcardBlock(text) {
+  return String(text || "").replace(/---\s*FLASHCARD\s*---[\s\S]*?(?:---\s*FIM\s*---|$)/i, "").trim();
+}
+
 // Renderer de Markdown leve para mensagens do tutor.
 // Suporta: **bold**, *italic*, `code`, headers #/##/###, listas (- *) e numeradas, tabelas | a | b |, links, quebras.
 function renderMd(text) {
   if (!text) return "";
-  text = String(text).replace(/---FLASHCARD---[\s\S]*?---FIM---/, "").trim();
+  text = stripFlashcardBlock(text);
   let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
   // Code blocks ``` ```
@@ -1909,16 +1927,12 @@ function FlashcardEditModal({card, onSave, onClose}) {
       const data = await callAnthropic({
         model: "claude-sonnet-4-5",
         max_tokens: 3500,
-        system: `Tutor médico melhorando flashcard.\nFRENTE: ${stripHtml(frente.html)}\nVERSO: ${stripHtml(verso.html)}\nAo sugerir novo flashcard inclua:\n---FLASHCARD---\nFRENTE: <texto>\nVERSO: <texto>\n---FIM---`,
+        system: `Tutor médico melhorando flashcard.\nFRENTE: ${stripHtml(frente.html)}\nVERSO: ${stripHtml(verso.html)}\n\nQuando sugerir um flashcard melhorado, SEMPRE termine EXATAMENTE com este bloco (rótulos sem markdown/negrito, cada um numa linha):\n---FLASHCARD---\nFRENTE: (texto da frente)\nVERSO: (texto do verso)\n---FIM---\nNUNCA diga "aqui está o flashcard" sem incluir o bloco logo em seguida.`,
         messages: history,
       });
       const reply = data.content?.map(i => i.text || "").join("") || "";
-      const match = reply.match(/---FLASHCARD---([\s\S]*?)---FIM---/);
-      if (match) {
-        const fM = match[1].match(/FRENTE:\s*([\s\S]+?)(?=\nVERSO:)/);
-        const vM = match[1].match(/VERSO:\s*([\s\S]+?)(?=\n---FIM---|$)/);
-        if (fM && vM) setPending({frente: fM[1].trim(), verso: vM[1].trim()});
-      }
+      const sug = parseFlashcardSuggestion(reply);
+      if (sug) setPending(sug);
       setMsgs([...history, {role:"assistant", content: reply}]);
     } catch (e) {
       setMsgs(m => [...m, {role:"assistant", content: "Erro: " + e.message}]);
@@ -1951,7 +1965,7 @@ function FlashcardEditModal({card, onSave, onClose}) {
               {msgs.map((m, i) => (
                 <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"90%"}}>
                   <div style={{background: m.role==="user"?"#e8b69a":"#243530", border: m.role==="assistant"?"1px solid #3d5048":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#f0e6d2", whiteSpace:"pre-wrap"}}>
-                    {m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
+                    {stripFlashcardBlock(m.content)}
                   </div>
                 </div>
               ))}
@@ -2915,7 +2929,7 @@ Retorne SOMENTE um JSON (sem markdown):
     const newMessages = [...chatMessages, {role:"user", content: msg}];
     setChatMessages(newMessages); setChatInput(""); setChatLoading(true);
     try {
-      let system = `Tutor médico especializado em residência médica no Brasil. Responda de forma clara e objetiva.\nSempre que mencionar, criticar ou sugerir um flashcard melhorado, inclua OBRIGATORIAMENTE no final da resposta:\n---FLASHCARD---\nFRENTE: <texto na mesma linha>\nVERSO: <texto na mesma linha>\n---FIM---`;
+      let system = `Tutor médico especializado em residência médica no Brasil. Responda de forma clara e objetiva.\nSempre que mencionar, criticar ou sugerir um flashcard melhorado, termine EXATAMENTE com este bloco (rótulos sem markdown/negrito, cada um numa linha):\n---FLASHCARD---\nFRENTE: (texto da frente)\nVERSO: (texto do verso)\n---FIM---\nNUNCA diga "aqui está o flashcard" sem incluir o bloco logo em seguida.`;
       if (chatContext) {
         if (chatContext.tipo === "flashcard") {
           system += `\n\nFLASHCARD:\nFRENTE: ${stripHtml(chatContext.frente)||""}\nVERSO: ${stripHtml(chatContext.verso)||""}`;
@@ -2943,12 +2957,8 @@ Retorne SOMENTE um JSON (sem markdown):
         messages: newMessages,
       });
       const reply = data.content?.map(i => i.text || "").join("") || "";
-      const match = reply.match(/---FLASHCARD---([\s\S]*?)---FIM---/);
-      if (match) {
-        const fM = match[1].match(/FRENTE:\s*([\s\S]+?)(?=\nVERSO:)/);
-        const vM = match[1].match(/VERSO:\s*([\s\S]+?)(?=\n---FIM---|$)/);
-        if (fM && vM) setPendingFlashcard({frente: fM[1].trim(), verso: vM[1].trim()});
-      }
+      const sug = parseFlashcardSuggestion(reply);
+      if (sug) setPendingFlashcard(sug);
       setChatMessages(prev => [...prev, {role:"assistant", content: reply}]);
     } catch (e) {
       setChatMessages(prev => [...prev, {role:"assistant", content: "Erro: " + e.message}]);
@@ -3163,7 +3173,7 @@ Retorne SOMENTE um JSON (sem markdown):
                 <div style={{background: m.role==="user"?"#e8b69a":"#243530", border: m.role==="assistant"?"1px solid #3d5048":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#f0e6d2", whiteSpace:"pre-wrap"}}>
                   {m.role === "assistant"
                     ? <div dangerouslySetInnerHTML={{__html: renderMd(m.content)}}/>
-                    : m.content.replace(/---FLASHCARD---[\s\S]*?---FIM---/,"").trim()}
+                    : stripFlashcardBlock(m.content)}
                 </div>
               </div>
             ))}
