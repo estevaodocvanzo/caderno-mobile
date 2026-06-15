@@ -1509,6 +1509,52 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             showToast(`✓ ${afetados.length} flashcards adiados em ${days} dia(s)`);
           }}>🏖️ Adiar todos agora</button>
 
+          {/* DILUIR BACKLOG: espalha cards due em N dias PRESERVANDO SM-2 */}
+          {(() => {
+            const t = today();
+            const dueCards = cards.filter(c => c.tipo !== "questao" && c.nextReview && c.nextReview <= t);
+            if (dueCards.length <= 30) return null;
+            return (
+              <>
+                <div style={{height:1,background:"#3d5048",margin:"14px 0"}}/>
+                <p style={{fontSize:12,color:"#8d9890",marginBottom:8,lineHeight:1.5}}>
+                  <strong style={{color:"#a8c4a2"}}>🌅 Diluir backlog</strong> — espalha os <strong style={{color:"#e8b69a"}}>{dueCards.length}</strong> cards due ao longo de N dias. <strong>Preserva SM-2</strong>. Frágeis primeiro; maduros pro fim.
+                </p>
+                <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
+                  <span style={{fontSize:12,color:"#8d9890"}}>Espalhar em</span>
+                  <input type="number" min="2" max="60" defaultValue="10" id="diluir-days" style={{width:60,background:"#243530",border:"1px solid #3d5048",color:"#f0e6d2",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
+                  <span style={{fontSize:12,color:"#8d9890"}}>dias</span>
+                </div>
+                <button style={{...S.btn("accent"),width:"100%"}} onClick={() => {
+                  const days = parseInt(document.getElementById("diluir-days").value || "10", 10);
+                  if (!days || days < 2 || days > 60) { showToast("Número de dias inválido (2-60)"); return; }
+                  const porDia = Math.ceil(dueCards.length / days);
+                  if (!confirm(`Diluir ${dueCards.length} cards em ${days} dias (≈ ${porDia}/dia)?\n\n✓ SM-2 PRESERVADO\n✓ Só o nextReview é espalhado\n✓ Frágeis primeiro, maduros pro fim\n\nNADA é resetado.`)) return;
+                  const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+                  const ordenados = [...dueCards].sort((a,b) => {
+                    const ia = a.interval||1, ib = b.interval||1;
+                    if (ia !== ib) return ia - ib;
+                    return (a.repetitions||0) - (b.repetitions||0);
+                  });
+                  const ids = new Map();
+                  ordenados.forEach((c, idx) => {
+                    const offset = Math.floor(idx / porDia);
+                    const d = new Date(); d.setDate(d.getDate() + offset);
+                    ids.set(c.id, fmtDate(d));
+                  });
+                  const todayStr = today();
+                  setCards(prev => prev.map(c => {
+                    const novo = ids.get(c.id);
+                    if (!novo) return c;
+                    const entry = { ts: nowIso(), data: todayStr, kind: "defer", motivo: `diluir-backlog-${days}d`, nextReviewAntes: c.nextReview, nextReviewDepois: novo, src: "mobile" };
+                    return { ...c, nextReview: novo, historico: [...(c.historico || []), entry], updatedAt: nowIso() };
+                  }));
+                  showToast(`✓ ${dueCards.length} cards diluídos em ${days} dias (SM-2 preservado)`);
+                }}>🌅 Diluir {dueCards.length} cards em N dias</button>
+              </>
+            );
+          })()}
+
           {(() => {
             const t = today();
             const cutoffDate = new Date(); cutoffDate.setDate(cutoffDate.getDate() - 7);
