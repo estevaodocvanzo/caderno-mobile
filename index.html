@@ -1942,6 +1942,36 @@ function FlashcardEditModal({card, onSave, onClose}) {
     setLoading(false);
   }
 
+  // Melhoria determinística via JSON estrito (não depende do chat emitir formato)
+  async function melhorarComIA(instrucao) {
+    setLoading(true);
+    try {
+      const fAtual = stripHtml(frente.html), vAtual = stripHtml(verso.html);
+      const data = await callAnthropic({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1500,
+        system: `Você melhora flashcards médicos de residência. Receba o flashcard atual e devolva uma versão melhorada (frente clara e específica, verso preciso e conciso).${instrucao ? "\n\nINSTRUÇÃO DO USUÁRIO (siga à risca): " + instrucao : ""}\n\nResponda APENAS com um objeto JSON válido, sem markdown, sem cercas de código, sem texto antes ou depois:\n{"frente": "...", "verso": "..."}`,
+        messages: [{ role: "user", content: `FRENTE: ${fAtual}\nVERSO: ${vAtual}` }],
+      });
+      const reply = data.content?.map(i => i.text || "").join("") || "";
+      let parsed = null;
+      try {
+        const m = reply.match(/\{[\s\S]*\}/);
+        parsed = JSON.parse((m ? m[0] : reply).replace(/```json|```/g, "").trim());
+      } catch (_) {}
+      if (parsed && parsed.frente && parsed.verso) {
+        setPending({ frente: String(parsed.frente).trim(), verso: String(parsed.verso).trim() });
+      } else {
+        const sug = parseFlashcardSuggestion(reply);
+        if (sug) setPending(sug);
+        else setMsgs(m => [...m, { role: "assistant", content: "Não consegui gerar a versão melhorada. Tenta de novo ou descreve o que quer mudar." }]);
+      }
+    } catch (e) {
+      setMsgs(m => [...m, { role: "assistant", content: "Erro: " + e.message }]);
+    }
+    setLoading(false);
+  }
+
   return (
     <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:"#2c3f38",border:"1px solid #3d5048",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #000a",overflow:"hidden"}}>
@@ -1955,6 +1985,33 @@ function FlashcardEditModal({card, onSave, onClose}) {
             <RichEditor value={frente} onChange={setFrente} placeholder="Pergunta…" minHeight={70}/>
             <p style={{...S.lbl,marginTop:14,marginBottom:6}}>Verso</p>
             <RichEditor value={verso} onChange={setVerso} placeholder="Resposta…" minHeight={70}/>
+
+            <div style={{marginTop:14,padding:"10px 12px",background:"#243530",border:"1px solid #3d5048",borderRadius:8}}>
+              <p style={{...S.lbl,marginBottom:6}}>✨ Melhorar com IA</p>
+              <input
+                style={{...S.inp,fontSize:13,padding:"8px 10px",marginBottom:8,width:"100%",boxSizing:"border-box"}}
+                placeholder="Opcional: o que mudar? (ex: só pergunte a tríade)"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key==="Enter" && !e.shiftKey && !loading) { e.preventDefault(); const i = input.trim(); setInput(""); melhorarComIA(i); } }}
+              />
+              <button style={{...S.btn("accent"),width:"100%",padding:9,fontSize:13}} disabled={loading} onClick={() => { const i = input.trim(); setInput(""); melhorarComIA(i); }}>
+                {loading ? "Gerando…" : "✨ Gerar versão melhorada"}
+              </button>
+            </div>
+
+            {pending && (
+              <div style={{marginTop:12,background:"#2b3a2c",border:"1px solid #a8c4a2",borderRadius:12,padding:"10px 14px"}}>
+                <p style={{fontSize:12,color:"#a8c4a2",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                <p style={{fontSize:13,color:"#f0e6d2",margin:"0 0 4px"}}><strong>Frente:</strong> {pending.frente}</p>
+                <p style={{fontSize:13,color:"#f0e6d2",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
+                <div style={{display:"flex",gap:8}}>
+                  <button style={{...S.btn("success"),flex:1,fontSize:13,padding:"8px 0"}} onClick={() => {setFrente(f => ({...f, html: pending.frente})); setVerso(v => ({...v, html: pending.verso})); setPending(null);}}>Aplicar</button>
+                  <button style={{...S.btn(),flex:1,fontSize:13,padding:"8px 0"}} onClick={() => setPending(null)}>Descartar</button>
+                </div>
+              </div>
+            )}
+
             <div style={{display:"flex",gap:8,marginTop:18}}>
               <button style={{...S.btn(),flex:1,padding:11}} onClick={onClose}>Cancelar</button>
               <button style={{...S.btn("primary"),flex:1,padding:11}} onClick={() => onSave({frente: frente.html, frenteImgs: frente.imgs||[], frenteImg: null, verso: verso.html, versoImgs: verso.imgs||[], versoImg: null})}>Salvar</button>
