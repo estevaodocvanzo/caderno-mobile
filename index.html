@@ -680,13 +680,27 @@ async function repoFetch(repo) {
     try { meta = JSON.parse((await repoGetFile(repo, META_FILENAME_REPO)).content); } catch {}
   }
   const partNames = names.filter(n => n.startsWith(PART_PREFIX_REPO)).sort();
+  // Download em pool paralelo (6 simultâneos) — sequencial fazia 1 round-trip por
+  // part (dezenas em acervo grande), 30-40s+ em rede móvel. Qualquer falha aborta
+  // (sem try/catch por arquivo) pra não sincronizar com dados parciais.
+  const PARALLEL_FETCHES = 6;
+  const fetched = new Array(partNames.length);
+  let nextIdx = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIdx++;
+      if (i >= partNames.length) return;
+      fetched[i] = await repoGetFile(repo, partNames[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(PARALLEL_FETCHES, partNames.length) }, () => worker()));
   const allCards = [];
-  for (const name of partNames) {
-    const f = await repoGetFile(repo, name);
+  for (let i = 0; i < partNames.length; i++) {
+    const f = fetched[i];
     try {
       const arr = JSON.parse(f.content);
       if (Array.isArray(arr)) allCards.push(...arr);
-    } catch (e) { console.warn("[CAD] chunk inválido:", name, e); }
+    } catch (e) { console.warn("[CAD] chunk inválido:", partNames[i], e); }
   }
   return {
     cards: allCards,
