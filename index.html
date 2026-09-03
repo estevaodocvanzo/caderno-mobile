@@ -473,6 +473,27 @@ function callGithub(method, path, body) {
   });
 }
 
+// Retry com backoff pra falhas TRANSITÓRIAS de rede (sem status, 502/503/504,
+// "failed to fetch"/timeout) — não retenta erro de negócio (404, 401, 422 etc).
+// Usado nos passos do repoUpdate/repoFetch que hoje abortam o sync inteiro
+// num soluço de conexão único (o upload de blob já tinha isso; leitura não tinha).
+async function callGithubRetry(method, path, body, maxAttempts) {
+  maxAttempts = maxAttempts || 3;
+  let last;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    last = await callGithub(method, path, body);
+    if (last.ok) return last;
+    const errMsg = String(last.error || "");
+    const transient = !last.status || last.status === 502 || last.status === 503 || last.status === 504 || /failed to fetch|timeout|network/i.test(errMsg);
+    if (transient && attempt < maxAttempts - 1) {
+      await new Promise(res => setTimeout(res, 300 * Math.pow(2, attempt)));
+      continue;
+    }
+    return last;
+  }
+  return last;
+}
+
 // Monta os files do gist em formato chunked (meta + parts)
 function buildGistFiles(cards, deletedIds) {
   const meta = { deletedIds: deletedIds || {}, version: 3, savedAt: nowIso(), totalCards: cards.length };
@@ -604,7 +625,7 @@ async function ensureRepo(repo) {
 
 // Lista arquivos em data/ e retorna { name → sha }
 async function repoListData(repo) {
-  const r = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}`);
+  const r = await callGithubRetry("GET", `/repos/${repo}/contents/${DATA_DIR}`);
   if (r.status === 404) return {};
   if (!r.ok) throw new Error("Falha ao listar " + DATA_DIR + "/: " + (r.error || r.status));
   const out = {};
@@ -616,12 +637,12 @@ async function repoListData(repo) {
 
 // Lê um arquivo específico via Contents API (até 1MB inline)
 async function repoGetFile(repo, name) {
-  const r = await callGithub("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
+  const r = await callGithubRetry("GET", `/repos/${repo}/contents/${DATA_DIR}/${name}`);
   if (!r.ok) throw new Error("Falha ao ler " + name + ": " + (r.error || r.status));
   // Contents API retorna encoding "none" pra arquivos > 1MB. Cai pra Git Data API blob.
   if (r.data.encoding !== "base64") {
     console.log("[CAD] " + name + " > 1MB, lendo via Git Data API blob");
-    const blobResp = await callGithub("GET", `/repos/${repo}/git/blobs/${r.data.sha}`);
+    const blobResp = await callGithubRetry("GET", `/repos/${repo}/git/blobs/${r.data.sha}`);
     if (!blobResp.ok) throw new Error("Falha ao ler blob " + name + ": " + (blobResp.error || blobResp.status));
     if (blobResp.data.encoding !== "base64") throw new Error("Encoding inesperado em blob " + name);
     return { sha: r.data.sha, content: b64decode(blobResp.data.content) };
@@ -740,13 +761,13 @@ async function repoUpdate(repo, cards, deletedIds) {
   const wantedPaths = new Set(files.map(f => f.path));
 
   // Descobre branch padrão
-  const repoInfo = await callGithub("GET", `/repos/${repo}`);
+  const repoInfo = await callGithubRetry("GET", `/repos/${repo}`);
   if (!repoInfo.ok) throw new Error("Falha ao ler repo: " + (repoInfo.error || repoInfo.status));
   const branch = repoInfo.data?.default_branch || "main";
 
   for (let attempt = 0; attempt < 3; attempt++) {
     // 1. HEAD da branch (cache-buster pra evitar resposta cacheada do Chrome em retry)
-    const refResp = await callGithub("GET", `/repos/${repo}/git/ref/heads/${branch}?_t=${Date.now()}`);
+    const refResp = await callGithubRetry("GET", `/repos/${repo}/git/ref/heads/${branch}?_t=${Date.now()}`);
     if (!refResp.ok) {
       if (refResp.status === 404 || refResp.status === 409) {
         // Repo vazio — cai pro legado, que cria os arquivos via Contents API
@@ -757,11 +778,11 @@ async function repoUpdate(repo, cards, deletedIds) {
     const baseCommitSha = refResp.data.object.sha;
 
     // 2. Tree atual (pra descobrir órfãos sob data/)
-    const commitResp = await callGithub("GET", `/repos/${repo}/git/commits/${baseCommitSha}`);
+    const commitResp = await callGithubRetry("GET", `/repos/${repo}/git/commits/${baseCommitSha}`);
     if (!commitResp.ok) throw new Error("Falha ao ler commit: " + (commitResp.error || commitResp.status));
     const baseTreeSha = commitResp.data.tree.sha;
 
-    const treeResp = await callGithub("GET", `/repos/${repo}/git/trees/${baseTreeSha}?recursive=1`);
+    const treeResp = await callGithubRetry("GET", `/repos/${repo}/git/trees/${baseTreeSha}?recursive=1`);
     if (!treeResp.ok) throw new Error("Falha ao ler tree: " + (treeResp.error || treeResp.status));
     const existingShas = new Map();
     for (const t of (treeResp.data.tree || [])) {
@@ -837,7 +858,7 @@ async function repoUpdate(repo, cards, deletedIds) {
       ...blobs.map(b => ({ path: b.path, mode: "100644", type: "blob", sha: b.sha })),
       ...orphanPaths.map(p => ({ path: p, mode: "100644", type: "blob", sha: null }))
     ];
-    const newTreeResp = await callGithub("POST", `/repos/${repo}/git/trees`, {
+    const newTreeResp = await callGithubRetry("POST", `/repos/${repo}/git/trees`, {
       base_tree: baseTreeSha,
       tree: treeEntries
     });
@@ -845,7 +866,7 @@ async function repoUpdate(repo, cards, deletedIds) {
 
     // 5. Novo commit
     const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
-    const newCommitResp = await callGithub("POST", `/repos/${repo}/git/commits`, {
+    const newCommitResp = await callGithubRetry("POST", `/repos/${repo}/git/commits`, {
       message: `sync ${cards.length} cards @ ${stamp}`,
       tree: newTreeResp.data.sha,
       parents: [baseCommitSha]
@@ -853,7 +874,7 @@ async function repoUpdate(repo, cards, deletedIds) {
     if (!newCommitResp.ok) throw new Error(`Falha ao criar commit: ${newCommitResp.error || newCommitResp.status}`);
 
     // 6. Move o ref — etapa atômica. Se outro device pushou, GitHub rejeita.
-    const updateRefResp = await callGithub("PATCH", `/repos/${repo}/git/refs/heads/${branch}`, {
+    const updateRefResp = await callGithubRetry("PATCH", `/repos/${repo}/git/refs/heads/${branch}`, {
       sha: newCommitResp.data.sha,
       force: false
     });
