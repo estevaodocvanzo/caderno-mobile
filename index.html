@@ -13,15 +13,22 @@
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
 <style>
-  html, body { margin: 0; padding: 0; background: #f7f0dc; }
+  html, body { margin: 0; padding: 0; background: #f6f3ec; }
   body { font-family: 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
   * { box-sizing: border-box; }
-  [contenteditable]:empty:before { content: attr(data-placeholder); color: #b6a67e; pointer-events: none; }
+  /* Cards antigos (sincronizados do desktop) podem ter grifo salvo com o
+     marrom escuro do tema velho — dark bg + texto que agora é escuro =
+     ilegível. Remapeia pro destaque claro atual. */
+  [style*="background-color: rgb(92, 74, 42)"], [style*="background-color:#5c4a2a"], [style*="background-color: #5c4a2a"] {
+    background-color: #e8d8a0 !important;
+    color: #3d362a !important;
+  }
+  [contenteditable]:empty:before { content: attr(data-placeholder); color: #b7ad96; pointer-events: none; }
   /* Scrollbar discreta no tema cozy */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
-  ::-webkit-scrollbar-track { background: #f7f0dc; }
-  ::-webkit-scrollbar-thumb { background: #e8dab3; border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: #d9c79c; }
+  ::-webkit-scrollbar-track { background: #f6f3ec; }
+  ::-webkit-scrollbar-thumb { background: #e9e3d2; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #ddd4bd; }
   /* Animações cozy */
   @keyframes cozyFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes cozyScaleIn { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
@@ -40,7 +47,7 @@
   .cozy-bar { transform-origin: bottom; animation: cozyBarGrow 0.5s ease-out both; }
   /* Hover sutil em itens clicáveis do banco/listas */
   .cozy-row { transition: background 0.15s ease, transform 0.15s ease; }
-  .cozy-row:hover { background: #f4e9c9 !important; }
+  .cozy-row:hover { background: #f1ecdd !important; }
   /* Botões com transição leve */
   button { transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease; }
   button:active { transform: scale(0.97); }
@@ -105,14 +112,14 @@ const STORAGE_KEY = "residencia_v2";
 // Tema "cozy" — verde profundo de biblioteca + acento peach
 // ============================================================
 const COZY = {
-  bg: '#f7f0dc', bg2: '#efe3bd', surface: '#fffcf3', surfaceHi: '#f4e9c9',
-  line: '#d9c79c', lineSoft: '#e8dab3',
-  text: '#362b1c', textSoft: '#6b5738', textMute: '#8f7c58', textFaint: '#b6a67e',
-  peach: '#b5622f', peachSoft: '#f7e2ce',
-  butter: '#9c7a1e', butterSoft: '#f7edcf',
-  rose: '#a8504f', roseSoft: '#f7dcdb',
-  sage: '#5c7d4f', sageSoft: '#e7efdf',
-  sky: '#52707c', skySoft: '#e2ebee',
+  bg: '#f6f3ec', bg2: '#eee8d9', surface: '#fffefa', surfaceHi: '#f1ecdd',
+  line: '#ddd4bd', lineSoft: '#e9e3d2',
+  text: '#3d362a', textSoft: '#6f6552', textMute: '#948870', textFaint: '#b7ad96',
+  peach: '#c48b6f', peachSoft: '#f7ebe1',
+  butter: '#ab9358', butterSoft: '#f5efdc',
+  rose: '#b17877', roseSoft: '#f6e6e5',
+  sage: '#7c9270', sageSoft: '#ecf0e6',
+  sky: '#71909a', skySoft: '#e7eef0',
   font: "'Inter', system-ui, sans-serif",
   fontDisplay: "'Fraunces', Georgia, serif",
   fontMono: "'JetBrains Mono', ui-monospace, monospace",
@@ -189,8 +196,8 @@ function areaTint(area) {
     'GO': COZY.peach,
     'Pediatria': COZY.sage,
     'Neurologia': COZY.sky,
-    'Preventiva': '#8a7a52',
-    'Psiquiatria': '#7a6a94',
+    'Preventiva': '#a4956f',
+    'Psiquiatria': '#8f81a0',
     'Ortopedia': COZY.butter,
     'MedCof': COZY.peach,
   })[area] || COZY.textSoft;
@@ -1011,7 +1018,7 @@ function renderCardText(s) {
   out = out
     .replace(/\*\*([^*\n][^*]*?)\*\*/g, "<strong>$1</strong>")
     .replace(/(^|[^*\w])\*([^*\n]+?)\*(?!\*)/g, "$1<em>$2</em>")
-    .replace(/`([^`\n]+)`/g, '<code style="background:#f7f0dc;padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace;font-size:0.9em;">$1</code>');
+    .replace(/`([^`\n]+)`/g, '<code style="background:#f6f3ec;padding:1px 5px;border-radius:3px;font-family:ui-monospace,monospace;font-size:0.9em;">$1</code>');
   if (!hasHtml) out = out.replace(/\n/g, "<br>");
   return out;
 }
@@ -1134,7 +1141,7 @@ function ExamHeader({src, onRemove, onZoom}) {
   return (
     <div style={{position:"relative",marginBottom:12,borderRadius:"10px 10px 0 0",overflow:"hidden",background:"#0a0e17",textAlign:"center"}}>
       <img src={src} onClick={() => onZoom && onZoom(src)} style={{maxWidth:"100%",maxHeight:220,display:"block",margin:"0 auto",objectFit:"contain",cursor:"zoom-in"}} alt="exame"/>
-      {onRemove && <button onClick={e => {e.stopPropagation(); onRemove();}} style={{position:"absolute",top:6,right:6,background:"#a8504fcc",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
+      {onRemove && <button onClick={e => {e.stopPropagation(); onRemove();}} style={{position:"absolute",top:6,right:6,background:"#b17877cc",border:"none",color:"#fff",borderRadius:"50%",width:22,height:22,cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
     </div>
   );
 }
@@ -1175,25 +1182,25 @@ function RichEditor({value, onChange, placeholder, minHeight=80}) {
     Promise.all(files.map(f => resizeImageToDataUrl(f))).then(addImgs);
     e.target.value = "";
   }
-  const bS = () => ({background:"#d9c79c",border:"none",color:"#362b1c",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
+  const bS = () => ({background:"#ddd4bd",border:"none",color:"#3d362a",borderRadius:6,padding:"3px 9px",cursor:"pointer",fontSize:12,fontWeight:500,lineHeight:"18px"});
   return (
-    <div style={{border:"1px solid #d9c79c",borderRadius:8,background:"#efe3bd",overflow:"hidden"}}>
-      <div style={{display:"flex",gap:5,padding:"6px 8px",borderBottom:"1px solid #e8dab3",flexWrap:"wrap",alignItems:"center"}}>
+    <div style={{border:"1px solid #ddd4bd",borderRadius:8,background:"#eee8d9",overflow:"hidden"}}>
+      <div style={{display:"flex",gap:5,padding:"6px 8px",borderBottom:"1px solid #e9e3d2",flexWrap:"wrap",alignItems:"center"}}>
         <button style={bS()} onMouseDown={e => {e.preventDefault(); execCmd("bold");}}><b>N</b></button>
         <button style={{...bS(),background:"#7c6a00",color:"#ffe066"}} onMouseDown={e => {e.preventDefault(); execCmd("hiliteColor","#ffe066");}}>▐ mk</button>
-        <button style={{...bS(),fontSize:11,color:"#6b5738"}} onMouseDown={e => {e.preventDefault(); execCmd("removeFormat");}}>✕ fmt</button>
-        <div style={{width:1,height:16,background:"#d9c79c",margin:"0 2px"}}/>
+        <button style={{...bS(),fontSize:11,color:"#6f6552"}} onMouseDown={e => {e.preventDefault(); execCmd("removeFormat");}}>✕ fmt</button>
+        <div style={{width:1,height:16,background:"#ddd4bd",margin:"0 2px"}}/>
         <button style={{...bS(),fontSize:11}} onMouseDown={e => {e.preventDefault(); fileRef.current.click();}}>📎 img</button>
         <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
       </div>
       <div ref={editorRef} contentEditable suppressContentEditableWarning onInput={sync} onPaste={handlePaste} data-placeholder={placeholder}
-        style={{minHeight, padding:"9px 12px", color:"#362b1c", fontSize:14, outline:"none", lineHeight:1.6, wordBreak:"break-word", fontFamily:"system-ui,sans-serif", fontWeight:400}}/>
+        style={{minHeight, padding:"9px 12px", color:"#3d362a", fontSize:14, outline:"none", lineHeight:1.6, wordBreak:"break-word", fontFamily:"system-ui,sans-serif", fontWeight:400}}/>
       {imgsAtuais().length > 0 && (
         <div style={{display:"flex",flexWrap:"wrap",gap:8,padding:"0 10px 10px"}}>
           {imgsAtuais().map((src, i) => (
             <div key={i} style={{position:"relative"}}>
               <img src={src} style={{maxWidth:"100%",maxHeight:200,borderRadius:6,display:"block"}} alt={`anexo ${i+1}`}/>
-              <button title="Remover imagem" style={{position:"absolute",top:4,right:4,background:"#a8504f",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => removeImgAt(i)}>✕</button>
+              <button title="Remover imagem" style={{position:"absolute",top:4,right:4,background:"#b17877",border:"none",color:"#fff",borderRadius:"50%",width:20,height:20,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={() => removeImgAt(i)}>✕</button>
             </div>
           ))}
         </div>
@@ -1219,21 +1226,21 @@ function ComentarioSection({form, setForm}) {
   const imgs = form.comentarioImgs || [];
   return (
     <div id="comentario-section" style={{marginBottom:14}}>
-      <label style={{...S.lbl, marginBottom:6}}>💬 Comentário do professor <span style={{color:"#b6a67e",fontWeight:400}}>(opcional — melhora o flashcard)</span></label>
+      <label style={{...S.lbl, marginBottom:6}}>💬 Comentário do professor <span style={{color:"#b7ad96",fontWeight:400}}>(opcional — melhora o flashcard)</span></label>
       <textarea style={{...S.inp, minHeight:60, resize:"vertical", marginBottom:8}} placeholder="Cole ou digite o comentário…" value={form.comentario||""} onChange={e => setForm(f => ({...f, comentario: e.target.value}))} onPaste={handlePaste}/>
       {imgs.length > 0 && (
         <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:8}}>
           {imgs.map((src, i) => (
             <div key={i} style={{position:"relative",display:"inline-block"}}>
-              <img src={src} style={{height:72,borderRadius:6,border:"1px solid #d9c79c",display:"block"}} alt={`c-${i}`}/>
-              <button onClick={() => removeImg(i)} style={{position:"absolute",top:-6,right:-6,background:"#a8504f",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
+              <img src={src} style={{height:72,borderRadius:6,border:"1px solid #ddd4bd",display:"block"}} alt={`c-${i}`}/>
+              <button onClick={() => removeImg(i)} style={{position:"absolute",top:-6,right:-6,background:"#b17877",border:"none",color:"#fff",borderRadius:"50%",width:18,height:18,cursor:"pointer",fontSize:11,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>
             </div>
           ))}
         </div>
       )}
       <button onClick={() => fileRef.current.click()} style={{...S.btn(), fontSize:12, padding:"5px 12px"}}>📎 {imgs.length > 0 ? "Adicionar mais" : "Print do comentário"}</button>
       <input ref={fileRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={handleFile}/>
-      <p style={{fontSize:11,color:"#b6a67e",margin:"4px 0 0"}}>ou cole com Ctrl+V na área de texto</p>
+      <p style={{fontSize:11,color:"#b7ad96",margin:"4px 0 0"}}>ou cole com Ctrl+V na área de texto</p>
     </div>
   );
 }
@@ -1409,17 +1416,17 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
 
   return (
     <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#fffcf3",border:"1px solid #d9c79c",borderRadius:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",padding:20}}>
+      <div style={{background:"#fffefa",border:"1px solid #ddd4bd",borderRadius:16,width:"100%",maxWidth:500,maxHeight:"90vh",overflowY:"auto",padding:20}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <p style={{fontWeight:600,fontSize:16,color:"#52707c",margin:0}}>⚙️ Configurações</p>
-          <button style={{background:"transparent",border:"none",color:"#6b5738",fontSize:20,cursor:"pointer"}} onClick={onClose}>✕</button>
+          <p style={{fontWeight:600,fontSize:16,color:"#71909a",margin:0}}>⚙️ Configurações</p>
+          <button style={{background:"transparent",border:"none",color:"#6f6552",fontSize:20,cursor:"pointer"}} onClick={onClose}>✕</button>
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>🔑 Chave da API Anthropic</p>
-          <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>🔑 Chave da API Anthropic</p>
+          <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
             Necessária para extrair questões de imagens, gerar flashcards e usar o tutor.
-            Crie em <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:"#b5622f"}}>console.anthropic.com/settings/keys</a>.
+            Crie em <a href="https://console.anthropic.com/settings/keys" target="_blank" style={{color:"#c48b6f"}}>console.anthropic.com/settings/keys</a>.
             Sua chave fica salva SÓ neste navegador.
           </p>
           <div style={{display:"flex",gap:6,marginBottom:8}}>
@@ -1430,16 +1437,16 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>
             ☁️ Sincronização entre computadores (GitHub Gist)
-            {syncState?.status === "ok" && <span style={{marginLeft:8,fontSize:11,color:"#5c7d4f"}}>● conectado</span>}
-            {syncState?.status === "error" && <span style={{marginLeft:8,fontSize:11,color:"#b23b3b"}}>● erro</span>}
-            {syncState?.status === "syncing" && <span style={{marginLeft:8,fontSize:11,color:"#52707c"}}>● sincronizando…</span>}
+            {syncState?.status === "ok" && <span style={{marginLeft:8,fontSize:11,color:"#7c9270"}}>● conectado</span>}
+            {syncState?.status === "error" && <span style={{marginLeft:8,fontSize:11,color:"#b06868"}}>● erro</span>}
+            {syncState?.status === "syncing" && <span style={{marginLeft:8,fontSize:11,color:"#71909a"}}>● sincronizando…</span>}
           </p>
-          <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
+          <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
             Cria um gist privado na sua conta GitHub e mantém seus cards sincronizados entre computadores.
-            Gere um token (escopo <code style={{background:"#efe3bd",padding:"1px 4px",borderRadius:3}}>gist</code>) em{" "}
-            <a href="https://github.com/settings/tokens?type=beta" target="_blank" style={{color:"#b5622f"}}>github.com/settings/tokens</a>.
+            Gere um token (escopo <code style={{background:"#eee8d9",padding:"1px 4px",borderRadius:3}}>gist</code>) em{" "}
+            <a href="https://github.com/settings/tokens?type=beta" target="_blank" style={{color:"#c48b6f"}}>github.com/settings/tokens</a>.
           </p>
           <p style={{...S.lbl, marginTop:6}}>Personal Access Token</p>
           <div style={{display:"flex",gap:6,marginBottom:8}}>
@@ -1460,10 +1467,10 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             </div>
           ) : (
             <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{background:"#efe3bd",padding:"8px 10px",borderRadius:6,fontSize:11,color:"#6b5738",wordBreak:"break-all"}}>
-                <strong style={{color:"#52707c"}}>Gist ID:</strong> {getGistId()}<br/>
-                {syncState?.lastSync && <><strong style={{color:"#52707c"}}>Última sync:</strong> {new Date(syncState.lastSync).toLocaleString("pt-BR")}</>}
-                {syncState?.error && <><br/><strong style={{color:"#b23b3b"}}>Erro:</strong> {syncState.error}</>}
+              <div style={{background:"#eee8d9",padding:"8px 10px",borderRadius:6,fontSize:11,color:"#6f6552",wordBreak:"break-all"}}>
+                <strong style={{color:"#71909a"}}>Gist ID:</strong> {getGistId()}<br/>
+                {syncState?.lastSync && <><strong style={{color:"#71909a"}}>Última sync:</strong> {new Date(syncState.lastSync).toLocaleString("pt-BR")}</>}
+                {syncState?.error && <><br/><strong style={{color:"#b06868"}}>Erro:</strong> {syncState.error}</>}
               </div>
               <button style={{...S.btn("primary"),width:"100%"}} disabled={syncBusy} onClick={handleSyncNow}>
                 {syncBusy ? "Sincronizando…" : "🔄 Sincronizar agora"}
@@ -1493,47 +1500,47 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>📊 Ritmo de revisão</p>
-          <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>📊 Ritmo de revisão</p>
+          <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
             Visualize sua carga das próximas 8 semanas e defina um teto diário. Sem teto = revisa tudo que cai. Com teto = pega os mais atrasados primeiro até o limite. Os excedentes ficam atrasados sem multiplicar.
           </p>
           <ReviewLoadHeatmap cards={cards}/>
           <div style={{marginTop:14,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:12,color:"#8f7c58"}}>Limite diário</span>
+            <span style={{fontSize:12,color:"#948870"}}>Limite diário</span>
             <input type="number" min="0" max="500" value={dailyLimit||""} placeholder="0 = sem limite"
               onChange={e => {
                 const v = e.target.value.replace(/[^0-9]/g,"");
                 const n = v === "" ? 0 : parseInt(v, 10);
                 setDailyLimitLocal(n);
               }}
-              style={{width:90,background:"#efe3bd",border:"1px solid #d9c79c",color:"#362b1c",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
-            <span style={{fontSize:12,color:"#8f7c58"}}>cards/dia</span>
+              style={{width:90,background:"#eee8d9",border:"1px solid #ddd4bd",color:"#3d362a",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
+            <span style={{fontSize:12,color:"#948870"}}>cards/dia</span>
             <button style={{...S.btn("primary"),fontSize:12,padding:"6px 14px",marginLeft:"auto"}} onClick={() => {
               saveDailyLimit(dailyLimit);
               showToast(dailyLimit > 0 ? `✓ Limite salvo: ${dailyLimit} cards/dia` : "✓ Limite removido (sem teto)");
             }}>Salvar</button>
           </div>
-          <p style={{fontSize:10,color:"#b6a67e",fontFamily:"ui-monospace,monospace",margin:"8px 0 0",lineHeight:1.5}}>
+          <p style={{fontSize:10,color:"#b7ad96",fontFamily:"ui-monospace,monospace",margin:"8px 0 0",lineHeight:1.5}}>
             critério de fila: mais atrasados primeiro (nextReview asc), depois embaralha dentro do mesmo dia
           </p>
         </div>
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>🏖️ Adiar revisões (férias / simulado)</p>
-          <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
-            Desloca o <strong style={{color:"#b5622f"}}>calendário inteiro</strong> em N dias. Cards de ontem viram hoje, de hoje viram amanhã, de amanhã vão pra depois — tudo +N. <strong style={{color:"#5c7d4f"}}>Preserva SM-2</strong> (interval/rep/ease intactos).
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>🏖️ Adiar revisões (férias / simulado)</p>
+          <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
+            Desloca o <strong style={{color:"#c48b6f"}}>calendário inteiro</strong> em N dias. Cards de ontem viram hoje, de hoje viram amanhã, de amanhã vão pra depois — tudo +N. <strong style={{color:"#7c9270"}}>Preserva SM-2</strong> (interval/rep/ease intactos).
           </p>
           <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-            <span style={{fontSize:12,color:"#8f7c58"}}>Adiar por</span>
-            <input type="number" min="1" max="60" defaultValue="1" id="defer-days" style={{width:60,background:"#efe3bd",border:"1px solid #d9c79c",color:"#362b1c",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
-            <span style={{fontSize:12,color:"#8f7c58"}}>dia(s)</span>
+            <span style={{fontSize:12,color:"#948870"}}>Adiar por</span>
+            <input type="number" min="1" max="60" defaultValue="1" id="defer-days" style={{width:60,background:"#eee8d9",border:"1px solid #ddd4bd",color:"#3d362a",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
+            <span style={{fontSize:12,color:"#948870"}}>dia(s)</span>
           </div>
           {(() => {
             const totalFlashcards = cards.filter(c => c.tipo !== "questao").length;
             const t = today();
             const dueHoje = cards.filter(c => c.tipo !== "questao" && c.nextReview <= t).length;
             return (
-              <p style={{fontSize:11,color:"#b6a67e",margin:"8px 0 0",fontFamily:"ui-monospace,monospace"}}>
+              <p style={{fontSize:11,color:"#b7ad96",margin:"8px 0 0",fontFamily:"ui-monospace,monospace"}}>
                 {totalFlashcards} flashcards no total · {dueHoje} due hoje
               </p>
             );
@@ -1578,14 +1585,14 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             if (dueCards.length <= 30) return null;
             return (
               <>
-                <div style={{height:1,background:"#d9c79c",margin:"14px 0"}}/>
-                <p style={{fontSize:12,color:"#8f7c58",marginBottom:8,lineHeight:1.5}}>
-                  <strong style={{color:"#5c7d4f"}}>🌅 Diluir backlog</strong> — <strong>nivela</strong> todos os cards dos próximos N dias (backlog + montes já agendados) numa carga plana. <strong>Preserva SM-2</strong>. Frágeis primeiro; maduros pro fim.
+                <div style={{height:1,background:"#ddd4bd",margin:"14px 0"}}/>
+                <p style={{fontSize:12,color:"#948870",marginBottom:8,lineHeight:1.5}}>
+                  <strong style={{color:"#7c9270"}}>🌅 Diluir backlog</strong> — <strong>nivela</strong> todos os cards dos próximos N dias (backlog + montes já agendados) numa carga plana. <strong>Preserva SM-2</strong>. Frágeis primeiro; maduros pro fim.
                 </p>
                 <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginBottom:8}}>
-                  <span style={{fontSize:12,color:"#8f7c58"}}>Nivelar em</span>
-                  <input type="number" min="2" max="60" defaultValue="20" id="diluir-days" style={{width:60,background:"#efe3bd",border:"1px solid #d9c79c",color:"#362b1c",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
-                  <span style={{fontSize:12,color:"#8f7c58"}}>dias</span>
+                  <span style={{fontSize:12,color:"#948870"}}>Nivelar em</span>
+                  <input type="number" min="2" max="60" defaultValue="20" id="diluir-days" style={{width:60,background:"#eee8d9",border:"1px solid #ddd4bd",color:"#3d362a",padding:"6px 8px",borderRadius:6,fontSize:13,fontFamily:"inherit"}}/>
+                  <span style={{fontSize:12,color:"#948870"}}>dias</span>
                 </div>
                 <button style={{...S.btn("accent"),width:"100%"}} onClick={() => {
                   const days = parseInt(document.getElementById("diluir-days").value || "20", 10);
@@ -1641,9 +1648,9 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
             if (semDefer.length === 0) return null;
             return (
               <>
-                <div style={{height:1,background:"#d9c79c",margin:"14px 0"}}/>
-                <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
-                  <strong style={{color:"#9c7a1e"}}>🩹 Defer recente detectado</strong> em <code style={{background:"#efe3bd",padding:"1px 5px",borderRadius:4,fontSize:11}}>{lastDate}</code> ({lastInfo.count} cards adiados em {lastInfo.dias} dia(s) — Opção A antiga). <strong>{semDefer.length} cards no futuro não foram tocados</strong> e ainda têm o calendário "errado". Aplicar +{lastInfo.dias}d retroativamente neles pra calendário ficar consistente?
+                <div style={{height:1,background:"#ddd4bd",margin:"14px 0"}}/>
+                <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
+                  <strong style={{color:"#ab9358"}}>🩹 Defer recente detectado</strong> em <code style={{background:"#eee8d9",padding:"1px 5px",borderRadius:4,fontSize:11}}>{lastDate}</code> ({lastInfo.count} cards adiados em {lastInfo.dias} dia(s) — Opção A antiga). <strong>{semDefer.length} cards no futuro não foram tocados</strong> e ainda têm o calendário "errado". Aplicar +{lastInfo.dias}d retroativamente neles pra calendário ficar consistente?
                 </p>
                 <button style={{...S.btn("accent"),width:"100%"}} onClick={() => {
                   if (!confirm(`Aplicar +${lastInfo.dias}d em ${semDefer.length} cards que perderam o defer de ${lastDate}?\n\n✓ Só afeta cards SEM entry de defer naquela data\n✓ Cards já deferred ficam intocados\n✓ Resultado: calendário inteiro fica como se Opção C tivesse sido usada em ${lastDate}`)) return;
@@ -1682,23 +1689,23 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
           if (regressed.length === 0) return null;
           return (
             <div style={S.card}>
-              <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>🔍 Cards regredidos detectados</p>
-              <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
-                <strong style={{color:"#b23b3b"}}>{regressed.length} cards</strong> têm SM-2 atual <strong>menor</strong> que o último registro do histórico. Sintoma de sync que sobrescreveu o estado correto. O histórico tem a verdade — pode restaurar.
+              <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>🔍 Cards regredidos detectados</p>
+              <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
+                <strong style={{color:"#b06868"}}>{regressed.length} cards</strong> têm SM-2 atual <strong>menor</strong> que o último registro do histórico. Sintoma de sync que sobrescreveu o estado correto. O histórico tem a verdade — pode restaurar.
               </p>
-              <div style={{maxHeight:280,overflowY:"auto",border:"1px solid #d9c79c",borderRadius:6,padding:8,marginBottom:10,background:"#f7f0dc"}}>
+              <div style={{maxHeight:280,overflowY:"auto",border:"1px solid #ddd4bd",borderRadius:6,padding:8,marginBottom:10,background:"#f6f3ec"}}>
                 {regressed.slice(0, 15).map(({card, currentRep, expectedRep, maxRep}, i) => (
-                  <div key={card.id} style={{padding:"6px 8px",borderBottom: i < regressed.slice(0,15).length-1 ? "1px solid #e8dab3" : "none",fontSize:11,fontFamily:"ui-monospace,monospace",color:"#52707c"}}>
-                    <div style={{color:"#362b1c",marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>
+                  <div key={card.id} style={{padding:"6px 8px",borderBottom: i < regressed.slice(0,15).length-1 ? "1px solid #e9e3d2" : "none",fontSize:11,fontFamily:"ui-monospace,monospace",color:"#71909a"}}>
+                    <div style={{color:"#3d362a",marginBottom:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>
                       {stripHtml(card.frente).slice(0, 60)}{stripHtml(card.frente).length > 60 ? "…" : ""}
                     </div>
-                    <span style={{color:"#b23b3b"}}>rep atual: {currentRep}</span>
-                    <span style={{color:"#b6a67e"}}> · esperado: <strong style={{color:"#5c7d4f"}}>{expectedRep}</strong></span>
-                    <span style={{color:"#b6a67e"}}> · máx histórico: {maxRep}</span>
+                    <span style={{color:"#b06868"}}>rep atual: {currentRep}</span>
+                    <span style={{color:"#b7ad96"}}> · esperado: <strong style={{color:"#7c9270"}}>{expectedRep}</strong></span>
+                    <span style={{color:"#b7ad96"}}> · máx histórico: {maxRep}</span>
                   </div>
                 ))}
                 {regressed.length > 15 && (
-                  <div style={{padding:"6px 8px",fontSize:10,color:"#b6a67e",fontFamily:"ui-monospace,monospace",fontStyle:"italic"}}>
+                  <div style={{padding:"6px 8px",fontSize:10,color:"#b7ad96",fontFamily:"ui-monospace,monospace",fontStyle:"italic"}}>
                     + {regressed.length - 15} mais (não mostrados)
                   </div>
                 )}
@@ -1739,9 +1746,9 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         })()}
 
         <div style={S.card}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>💾 Backup dos dados</p>
-          <p style={{fontSize:12,color:"#8f7c58",marginBottom:10,lineHeight:1.5}}>
-            Total: <strong style={{color:"#52707c"}}>{cards.length}</strong> itens. Recomendado exportar 1x por semana.
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>💾 Backup dos dados</p>
+          <p style={{fontSize:12,color:"#948870",marginBottom:10,lineHeight:1.5}}>
+            Total: <strong style={{color:"#71909a"}}>{cards.length}</strong> itens. Recomendado exportar 1x por semana.
             Os dados ficam salvos no navegador — limpe-o e você perde tudo se não tiver backup!
           </p>
           <div style={{display:"flex",gap:8,flexDirection:"column"}}>
@@ -1752,10 +1759,10 @@ function ConfigModal({onClose, cards, setCards, showToast, deletedIds, setDelete
         </div>
 
         <div style={{...S.card,marginBottom:0}}>
-          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#362b1c"}}>ℹ️ Sobre</p>
-          <p style={{fontSize:12,color:"#8f7c58",margin:0,lineHeight:1.6}}>
+          <p style={{fontWeight:500,fontSize:14,marginBottom:4,color:"#3d362a"}}>ℹ️ Sobre</p>
+          <p style={{fontSize:12,color:"#948870",margin:0,lineHeight:1.6}}>
             Caderno de Erros — sistema de revisão espaçada com IA.<br/>
-            Para continuar melhorando este app com IA, abra o Cowork e peça para ler <code style={{background:"#efe3bd",padding:"1px 5px",borderRadius:4}}>codigo-fonte.jsx</code>.
+            Para continuar melhorando este app com IA, abra o Cowork e peça para ler <code style={{background:"#eee8d9",padding:"1px 5px",borderRadius:4}}>codigo-fonte.jsx</code>.
           </p>
         </div>
       </div>
@@ -1828,12 +1835,12 @@ function ReviewLoadHeatmap({cards}) {
   const picoIdx = days.reduce((mi, e, i) => e.n > days[mi].n ? i : mi, 0);
   const pico = days[picoIdx];
   const cellColor = (n) => {
-    if (n === 0) return "#f7f0dc";
+    if (n === 0) return "#f6f3ec";
     const t = n / max;
     if (t < 0.33) return "#3d5a48";
-    if (t < 0.66) return "#5c7d4f";
-    if (t < 0.85) return "#9c7a1e";
-    return "#b5622f";
+    if (t < 0.66) return "#7c9270";
+    if (t < 0.85) return "#ab9358";
+    return "#c48b6f";
   };
   const monthLabel = (d) => ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][d.getMonth()];
   return (
@@ -1841,8 +1848,8 @@ function ReviewLoadHeatmap({cards}) {
       <div style={{display:"flex",alignItems:"flex-end",gap:8,marginBottom:8}}>
         {atrasados > 0 && (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}} title={`${atrasados} cards atrasados`}>
-            <div style={{fontSize:9,color:"#a8504f",fontFamily:"ui-monospace,monospace"}}>atras</div>
-            <div style={{width:34,height:38,background:"#f6d4d4",border:"1px solid #a8504f",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"ui-monospace,monospace",fontSize:13,fontWeight:600,color:"#362b1c"}}>{atrasados}</div>
+            <div style={{fontSize:9,color:"#b17877",fontFamily:"ui-monospace,monospace"}}>atras</div>
+            <div style={{width:34,height:38,background:"#f5e5e4",border:"1px solid #b17877",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"ui-monospace,monospace",fontSize:13,fontWeight:600,color:"#3d362a"}}>{atrasados}</div>
           </div>
         )}
         <div style={{flex:1,display:"grid",gridTemplateColumns:"repeat(8, 1fr)",gridTemplateRows:"repeat(7, 1fr)",gridAutoFlow:"column",gap:2}}>
@@ -1853,12 +1860,12 @@ function ReviewLoadHeatmap({cards}) {
               <div key={i} title={tip}
                 style={{
                   background: cellColor(e.n),
-                  border: isHoje ? "1px solid #b5622f" : "none",
+                  border: isHoje ? "1px solid #c48b6f" : "none",
                   borderRadius: 2,
                   minHeight: 14,
                   fontSize: 8,
                   fontFamily: "ui-monospace,monospace",
-                  color: e.n > 0 ? "#f7f0dc" : "#d9c79c",
+                  color: e.n > 0 ? "#f6f3ec" : "#ddd4bd",
                   textAlign: "center",
                   lineHeight: "14px",
                   fontWeight: e.n > 0 ? 600 : 400,
@@ -1869,14 +1876,14 @@ function ReviewLoadHeatmap({cards}) {
           })}
         </div>
       </div>
-      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:9,color:"#b6a67e",fontFamily:"ui-monospace,monospace",marginBottom:6}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:9,color:"#b7ad96",fontFamily:"ui-monospace,monospace",marginBottom:6}}>
         <span>{monthLabel(days[0].date)}</span>
         <span>→</span>
         <span>{monthLabel(days[days.length-1].date)} (8 sem)</span>
       </div>
-      <div style={{fontSize:11,color:"#8f7c58",fontFamily:"ui-monospace,monospace",lineHeight:1.7}}>
-        <div>próx 7d: <strong style={{color:"#362b1c"}}>{totalProx7}</strong> ({(totalProx7/7).toFixed(1)}/dia) · próx 14d: {totalProx14} ({(totalProx14/14).toFixed(1)}/dia) · próx 30d: {totalProx30} ({(totalProx30/30).toFixed(1)}/dia)</div>
-        <div>pico: <strong style={{color:"#b5622f"}}>{pico.n}</strong> em {pico.ds} (+{pico.offset}d)</div>
+      <div style={{fontSize:11,color:"#948870",fontFamily:"ui-monospace,monospace",lineHeight:1.7}}>
+        <div>próx 7d: <strong style={{color:"#3d362a"}}>{totalProx7}</strong> ({(totalProx7/7).toFixed(1)}/dia) · próx 14d: {totalProx14} ({(totalProx14/14).toFixed(1)}/dia) · próx 30d: {totalProx30} ({(totalProx30/30).toFixed(1)}/dia)</div>
+        <div>pico: <strong style={{color:"#c48b6f"}}>{pico.n}</strong> em {pico.ds} (+{pico.offset}d)</div>
       </div>
     </div>
   );
@@ -1886,7 +1893,7 @@ function HistoricoPanel({historico}) {
   const [open, setOpen] = useState(false);
   const items = [...(historico || [])].reverse();
   const gradeLabel = { 0: "errei", 2: "difícil", 3: "bom", 4: "fácil" };
-  const gradeColor = { 0: "#a8504f", 2: "#9c7a1e", 3: "#5c7d4f", 4: "#b5622f" };
+  const gradeColor = { 0: "#b17877", 2: "#ab9358", 3: "#7c9270", 4: "#c48b6f" };
   const kindLabel = { grade: "revisão", edit: "edição", reset: "reset", import: "import", defer: "defer", restore: "restauração" };
   const fmtData = (d) => {
     if (!d) return "?";
@@ -1899,49 +1906,49 @@ function HistoricoPanel({historico}) {
     return m ? ` ${m[1]}:${m[2]}` : "";
   };
   return (
-    <div style={{marginTop:10,borderTop:"1px dashed #e8dab3",paddingTop:8}}>
+    <div style={{marginTop:10,borderTop:"1px dashed #e9e3d2",paddingTop:8}}>
       <button onClick={() => setOpen(o => !o)}
-        style={{background:"none",border:"none",color:"#8f7c58",cursor:"pointer",fontSize:11,fontFamily:"ui-monospace,monospace",padding:0,display:"flex",alignItems:"center",gap:6}}>
+        style={{background:"none",border:"none",color:"#948870",cursor:"pointer",fontSize:11,fontFamily:"ui-monospace,monospace",padding:0,display:"flex",alignItems:"center",gap:6}}>
         {open ? "▼" : "▶"} 📜 histórico ({items.length})
       </button>
       {open && (
-        <div style={{marginTop:8,maxHeight:240,overflowY:"auto",fontFamily:"ui-monospace,monospace",fontSize:11,lineHeight:1.5,color:"#52707c"}}>
+        <div style={{marginTop:8,maxHeight:240,overflowY:"auto",fontFamily:"ui-monospace,monospace",fontSize:11,lineHeight:1.5,color:"#71909a"}}>
           {items.map((h, i) => {
-            const srcBadge = h.src ? <span style={{color:"#b6a67e",marginLeft:6,fontSize:9}}>[{h.src}]</span> : null;
+            const srcBadge = h.src ? <span style={{color:"#b7ad96",marginLeft:6,fontSize:9}}>[{h.src}]</span> : null;
             if (h.kind === "grade") {
               return (
-                <div key={i} style={{padding:"4px 6px",borderLeft:`2px solid ${gradeColor[h.grade]||"#d9c79c"}`,marginBottom:3,background:"#f7f0dc",borderRadius:"0 4px 4px 0"}}>
-                  <span style={{color:"#6b5738"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
-                  <span style={{color:gradeColor[h.grade]||"#52707c",marginLeft:8,fontWeight:600}}>{gradeLabel[h.grade]||`g${h.grade}`}</span>
+                <div key={i} style={{padding:"4px 6px",borderLeft:`2px solid ${gradeColor[h.grade]||"#ddd4bd"}`,marginBottom:3,background:"#f6f3ec",borderRadius:"0 4px 4px 0"}}>
+                  <span style={{color:"#6f6552"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
+                  <span style={{color:gradeColor[h.grade]||"#71909a",marginLeft:8,fontWeight:600}}>{gradeLabel[h.grade]||`g${h.grade}`}</span>
                   {srcBadge}
-                  <span style={{color:"#b6a67e",marginLeft:8}}>·</span>
-                  <span style={{marginLeft:8}}>{h.intAntes}d → <strong style={{color:"#362b1c"}}>{h.intDepois}d</strong></span>
-                  <span style={{color:"#b6a67e",marginLeft:8}}>rep {h.repAntes}→{h.repDepois}</span>
+                  <span style={{color:"#b7ad96",marginLeft:8}}>·</span>
+                  <span style={{marginLeft:8}}>{h.intAntes}d → <strong style={{color:"#3d362a"}}>{h.intDepois}d</strong></span>
+                  <span style={{color:"#b7ad96",marginLeft:8}}>rep {h.repAntes}→{h.repDepois}</span>
                 </div>
               );
             }
             if (h.kind === "edit") {
               return (
-                <div key={i} style={{padding:"4px 6px",borderLeft:"2px solid #8f7c58",marginBottom:3,background:"#f7f0dc",borderRadius:"0 4px 4px 0"}}>
-                  <span style={{color:"#6b5738"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
-                  <span style={{color:"#8f7c58",marginLeft:8,fontWeight:600}}>edição</span>
+                <div key={i} style={{padding:"4px 6px",borderLeft:"2px solid #948870",marginBottom:3,background:"#f6f3ec",borderRadius:"0 4px 4px 0"}}>
+                  <span style={{color:"#6f6552"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
+                  <span style={{color:"#948870",marginLeft:8,fontWeight:600}}>edição</span>
                   {srcBadge}
-                  <span style={{color:"#b6a67e",marginLeft:8}}>({(h.campos||[]).join(", ")})</span>
+                  <span style={{color:"#b7ad96",marginLeft:8}}>({(h.campos||[]).join(", ")})</span>
                 </div>
               );
             }
             if (h.kind === "reset") {
               return (
-                <div key={i} style={{padding:"4px 6px",borderLeft:"2px solid #a8504f",marginBottom:3,background:"#f7f0dc",borderRadius:"0 4px 4px 0"}}>
-                  <span style={{color:"#6b5738"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
-                  <span style={{color:"#a8504f",marginLeft:8,fontWeight:600}}>RESET</span>
+                <div key={i} style={{padding:"4px 6px",borderLeft:"2px solid #b17877",marginBottom:3,background:"#f6f3ec",borderRadius:"0 4px 4px 0"}}>
+                  <span style={{color:"#6f6552"}}>{fmtData(h.data)}{fmtHora(h.ts)}</span>
+                  <span style={{color:"#b17877",marginLeft:8,fontWeight:600}}>RESET</span>
                   {srcBadge}
-                  <span style={{color:"#b6a67e",marginLeft:8}}>({h.motivo||"?"})</span>
+                  <span style={{color:"#b7ad96",marginLeft:8}}>({h.motivo||"?"})</span>
                 </div>
               );
             }
             return (
-              <div key={i} style={{padding:"4px 6px",color:"#b6a67e"}}>
+              <div key={i} style={{padding:"4px 6px",color:"#b7ad96"}}>
                 {fmtData(h.data)} · {kindLabel[h.kind]||h.kind} {srcBadge}
               </div>
             );
@@ -2016,9 +2023,9 @@ function FlashcardEditModal({card, onSave, onClose}) {
 
   return (
     <div style={{position:"fixed",inset:0,background:"#000a",zIndex:990,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div style={{background:"#fffcf3",border:"1px solid #d9c79c",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #000a",overflow:"hidden"}}>
-        <div style={{padding:"14px 18px",borderBottom:"1px solid #e8dab3",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
-          <p style={{fontWeight:600,fontSize:15,color:"#52707c",margin:0}}>✏️ Editar flashcard</p>
+      <div style={{background:"#fffefa",border:"1px solid #ddd4bd",borderRadius:16,width:"100%",maxWidth:520,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 8px 32px #000a",overflow:"hidden"}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid #e9e3d2",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
+          <p style={{fontWeight:600,fontSize:15,color:"#71909a",margin:0}}>✏️ Editar flashcard</p>
           <button style={{...S.btn(chatOpen?"":"primary"),fontSize:12,padding:"6px 12px"}} onClick={() => setChatOpen(o => !o)}>{chatOpen?"← Editor":"💬 Tutor"}</button>
         </div>
         {!chatOpen ? (
@@ -2028,7 +2035,7 @@ function FlashcardEditModal({card, onSave, onClose}) {
             <p style={{...S.lbl,marginTop:14,marginBottom:6}}>Verso</p>
             <RichEditor value={verso} onChange={setVerso} placeholder="Resposta…" minHeight={70}/>
 
-            <div style={{marginTop:14,padding:"10px 12px",background:"#efe3bd",border:"1px solid #d9c79c",borderRadius:8}}>
+            <div style={{marginTop:14,padding:"10px 12px",background:"#eee8d9",border:"1px solid #ddd4bd",borderRadius:8}}>
               <p style={{...S.lbl,marginBottom:6}}>✨ Melhorar com IA</p>
               <input
                 style={{...S.inp,fontSize:13,padding:"8px 10px",marginBottom:8,width:"100%",boxSizing:"border-box"}}
@@ -2043,10 +2050,10 @@ function FlashcardEditModal({card, onSave, onClose}) {
             </div>
 
             {pending && (
-              <div style={{marginTop:12,background:"#e7efdf",border:"1px solid #5c7d4f",borderRadius:12,padding:"10px 14px"}}>
-                <p style={{fontSize:12,color:"#5c7d4f",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
-                <p style={{fontSize:13,color:"#362b1c",margin:"0 0 4px"}}><strong>Frente:</strong> {pending.frente}</p>
-                <p style={{fontSize:13,color:"#362b1c",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
+              <div style={{marginTop:12,background:"#ecf0e6",border:"1px solid #7c9270",borderRadius:12,padding:"10px 14px"}}>
+                <p style={{fontSize:12,color:"#7c9270",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                <p style={{fontSize:13,color:"#3d362a",margin:"0 0 4px"}}><strong>Frente:</strong> {pending.frente}</p>
+                <p style={{fontSize:13,color:"#3d362a",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
                 <div style={{display:"flex",gap:8}}>
                   <button style={{...S.btn("success"),flex:1,fontSize:13,padding:"8px 0"}} onClick={() => {setFrente(f => ({...f, html: pending.frente})); setVerso(v => ({...v, html: pending.verso})); setPending(null);}}>Aplicar</button>
                   <button style={{...S.btn(),flex:1,fontSize:13,padding:"8px 0"}} onClick={() => setPending(null)}>Descartar</button>
@@ -2062,29 +2069,29 @@ function FlashcardEditModal({card, onSave, onClose}) {
         ) : (
           <div style={{flex:1,display:"flex",flexDirection:"column",minHeight:0}}>
             <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-              {msgs.length === 0 && <p style={{color:"#b6a67e",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7}}>Explique o que não ficou bom no flashcard.</p>}
+              {msgs.length === 0 && <p style={{color:"#b7ad96",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7}}>Explique o que não ficou bom no flashcard.</p>}
               {msgs.map((m, i) => (
                 <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"90%"}}>
-                  <div style={{background: m.role==="user"?"#b5622f":"#efe3bd", border: m.role==="assistant"?"1px solid #d9c79c":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#362b1c", whiteSpace:"pre-wrap"}}>
+                  <div style={{background: m.role==="user"?"#c48b6f":"#eee8d9", border: m.role==="assistant"?"1px solid #ddd4bd":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#3d362a", whiteSpace:"pre-wrap"}}>
                     {stripFlashcardBlock(m.content)}
                   </div>
                 </div>
               ))}
               {pending && (
-                <div style={{background:"#e7efdf",border:"1px solid #5c7d4f",borderRadius:12,padding:"10px 14px"}}>
-                  <p style={{fontSize:12,color:"#5c7d4f",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
-                  <p style={{fontSize:12,color:"#362b1c",margin:"0 0 2px"}}><strong>Frente:</strong> {pending.frente}</p>
-                  <p style={{fontSize:12,color:"#362b1c",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
+                <div style={{background:"#ecf0e6",border:"1px solid #7c9270",borderRadius:12,padding:"10px 14px"}}>
+                  <p style={{fontSize:12,color:"#7c9270",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                  <p style={{fontSize:12,color:"#3d362a",margin:"0 0 2px"}}><strong>Frente:</strong> {pending.frente}</p>
+                  <p style={{fontSize:12,color:"#3d362a",margin:"0 0 10px"}}><strong>Verso:</strong> {pending.verso}</p>
                   <div style={{display:"flex",gap:8}}>
                     <button style={{...S.btn("success"),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => {setFrente(f => ({...f, html: pending.frente})); setVerso(v => ({...v, html: pending.verso})); setPending(null); setChatOpen(false);}}>Aplicar</button>
                     <button style={{...S.btn(),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => setPending(null)}>Descartar</button>
                   </div>
                 </div>
               )}
-              {loading && <div style={{alignSelf:"flex-start",background:"#efe3bd",border:"1px solid #d9c79c",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#8f7c58"}}>Pensando…</div>}
+              {loading && <div style={{alignSelf:"flex-start",background:"#eee8d9",border:"1px solid #ddd4bd",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#948870"}}>Pensando…</div>}
               <div ref={endRef}/>
             </div>
-            <div style={{padding:"10px 12px",borderTop:"1px solid #e8dab3",display:"flex",gap:8,flexShrink:0}}>
+            <div style={{padding:"10px 12px",borderTop:"1px solid #e9e3d2",display:"flex",gap:8,flexShrink:0}}>
               <input style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px"}} placeholder="Explique o problema…" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key==="Enter" && !e.shiftKey && sendMsg()}/>
               <button style={{...S.btn("primary"),padding:"8px 14px",flexShrink:0}} onClick={sendMsg} disabled={loading||!input.trim()}>↑</button>
             </div>
@@ -3078,15 +3085,15 @@ Retorne SOMENTE um JSON (sem markdown):
   const currentCard = reviewQueue[reviewIdx];
   const isActive = v => view === v || (view === "reviewDone" && v === "review_start") || (view === "review" && v === "review_start");
 
-  if (!loaded) return <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:"#8f7c58"}}>Carregando…</p></div>;
+  if (!loaded) return <div style={{...S.app,display:"flex",alignItems:"center",justifyContent:"center"}}><p style={{color:"#948870"}}>Carregando…</p></div>;
 
   return (
     <div style={S.app}>
-      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#5c7d4f",color:"#fff",padding:"8px 22px",borderRadius:8,fontSize:13,zIndex:999,fontWeight:500,boxShadow:"0 4px 12px #0006"}}>{toast}</div>}
+      {toast && <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",background:"#7c9270",color:"#fff",padding:"8px 22px",borderRadius:8,fontSize:13,zIndex:999,fontWeight:500,boxShadow:"0 4px 12px #0006"}}>{toast}</div>}
       {lightbox && (
         <div onClick={() => setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.92)",zIndex:992,display:"flex",alignItems:"center",justifyContent:"center",cursor:"zoom-out"}}>
           <img src={lightbox} style={{maxWidth:"95vw",maxHeight:"95vh",objectFit:"contain",borderRadius:8}} alt="zoom"/>
-          <button onClick={() => setLightbox(null)} style={{position:"absolute",top:16,right:16,background:"#d9c79c",border:"none",color:"#362b1c",borderRadius:"50%",width:36,height:36,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+          <button onClick={() => setLightbox(null)} style={{position:"absolute",top:16,right:16,background:"#ddd4bd",border:"none",color:"#3d362a",borderRadius:"50%",width:36,height:36,cursor:"pointer",fontSize:18,display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
         </div>
       )}
       {editingCard && <FlashcardEditModal card={editingCard} onClose={() => setEditingCard(null)} onSave={fields => saveEditedCard(editingCard.id, fields)}/>}
@@ -3259,19 +3266,19 @@ Retorne SOMENTE um JSON (sem markdown):
           )}
           <div style={{flex:1,display:tutorMin?"none":"flex",flexDirection:"column",overflow:"hidden"}}>
           {chatContext && (chatContext.enunciado || chatContext.frente) && (
-            <div style={{borderBottom:"1px solid #d9c79c"}}>
+            <div style={{borderBottom:"1px solid #ddd4bd"}}>
               {chatContext.exameCrop && <img src={chatContext.exameCrop} onClick={() => setLightbox(chatContext.exameCrop)} style={{width:"100%",maxHeight:100,objectFit:"cover",display:"block",cursor:"zoom-in"}} alt="exame"/>}
-              <div style={{padding:"7px 14px",background:COZY.bg2,fontSize:12,color:"#52707c",lineHeight:1.5}}>
+              <div style={{padding:"7px 14px",background:COZY.bg2,fontSize:12,color:"#71909a",lineHeight:1.5}}>
                 {chatContext.area}{chatContext.tema?` · ${chatContext.tema}`:""}<br/>
-                <span style={{color:"#8f7c58"}}>{(chatContext.tipo==="flashcard" ? stripHtml(chatContext.frente) : chatContext.enunciado||"").slice(0,70)}…</span>
+                <span style={{color:"#948870"}}>{(chatContext.tipo==="flashcard" ? stripHtml(chatContext.frente) : chatContext.enunciado||"").slice(0,70)}…</span>
               </div>
             </div>
           )}
           <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-            {chatMessages.length === 0 && <p style={{color:"#b6a67e",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7,padding:"0 8px"}}>{chatContext?.enunciado ? "Questão carregada! Pergunte sobre alternativas, mecanismos, ou peça um flashcard." : chatContext?.frente ? "Flashcard carregado! Peça melhorias ou tire dúvidas." : "Pergunte sobre clínica, fármacos, fisiologia…"}</p>}
+            {chatMessages.length === 0 && <p style={{color:"#b7ad96",fontSize:13,textAlign:"center",marginTop:32,lineHeight:1.7,padding:"0 8px"}}>{chatContext?.enunciado ? "Questão carregada! Pergunte sobre alternativas, mecanismos, ou peça um flashcard." : chatContext?.frente ? "Flashcard carregado! Peça melhorias ou tire dúvidas." : "Pergunte sobre clínica, fármacos, fisiologia…"}</p>}
             {chatMessages.map((m, i) => (
               <div key={i} style={{alignSelf: m.role==="user"?"flex-end":"flex-start", maxWidth:"88%"}}>
-                <div style={{background: m.role==="user"?"#b5622f":"#efe3bd", border: m.role==="assistant"?"1px solid #d9c79c":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#362b1c", whiteSpace:"pre-wrap"}}>
+                <div style={{background: m.role==="user"?"#c48b6f":"#eee8d9", border: m.role==="assistant"?"1px solid #ddd4bd":"none", borderRadius: m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px", padding:"9px 13px", fontSize:13, lineHeight:1.6, color:"#3d362a", whiteSpace:"pre-wrap"}}>
                   {m.role === "assistant"
                     ? <div dangerouslySetInnerHTML={{__html: renderMd(m.content)}}/>
                     : stripFlashcardBlock(m.content)}
@@ -3279,10 +3286,10 @@ Retorne SOMENTE um JSON (sem markdown):
               </div>
             ))}
             {pendingFlashcard && (
-              <div style={{background:"#e7efdf",border:"1px solid #5c7d4f",borderRadius:12,padding:"10px 14px"}}>
-                <p style={{fontSize:12,color:"#5c7d4f",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
-                <p style={{fontSize:12,color:"#362b1c",margin:"0 0 2px"}}><strong>Frente:</strong> {pendingFlashcard.frente}</p>
-                <p style={{fontSize:12,color:"#362b1c",margin:"0 0 10px"}}><strong>Verso:</strong> {pendingFlashcard.verso}</p>
+              <div style={{background:"#ecf0e6",border:"1px solid #7c9270",borderRadius:12,padding:"10px 14px"}}>
+                <p style={{fontSize:12,color:"#7c9270",fontWeight:500,margin:"0 0 6px"}}>✨ Sugestão</p>
+                <p style={{fontSize:12,color:"#3d362a",margin:"0 0 2px"}}><strong>Frente:</strong> {pendingFlashcard.frente}</p>
+                <p style={{fontSize:12,color:"#3d362a",margin:"0 0 10px"}}><strong>Verso:</strong> {pendingFlashcard.verso}</p>
                 <div style={{display:"flex",gap:8}}>
                   <button style={{...S.btn("success"),flex:1,fontSize:12,padding:"6px 0"}} onClick={() => {
                     const fc = {id: Date.now()+1, tipo:"flashcard", area: form.area||chatContext?.area||"Outro", tema: form.tema||chatContext?.tema||"", frente: pendingFlashcard.frente, verso: pendingFlashcard.verso, frenteImg: null, versoImg: null, interval: 1, repetitions: 0, easeFactor: 2.5, nextReview: today(), createdAt: today(), updatedAt: nowIso()};
@@ -3294,10 +3301,10 @@ Retorne SOMENTE um JSON (sem markdown):
                 </div>
               </div>
             )}
-            {chatLoading && <div style={{alignSelf:"flex-start",background:"#efe3bd",border:"1px solid #d9c79c",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#8f7c58"}}>Pensando…</div>}
+            {chatLoading && <div style={{alignSelf:"flex-start",background:"#eee8d9",border:"1px solid #ddd4bd",borderRadius:"14px 14px 14px 4px",padding:"9px 13px",fontSize:13,color:"#948870"}}>Pensando…</div>}
             <div ref={chatEndRef}/>
           </div>
-          <div style={{padding:"10px 12px",borderTop:"1px solid #e8dab3",display:"flex",gap:8}}>
+          <div style={{padding:"10px 12px",borderTop:"1px solid #e9e3d2",display:"flex",gap:8}}>
             <textarea
               style={{...S.inp,flex:1,fontSize:13,padding:"8px 12px",minHeight:38,maxHeight:160,resize:"none",overflow:"auto",lineHeight:1.45}}
               placeholder="Digite sua dúvida…"
@@ -3660,20 +3667,20 @@ Retorne SOMENTE um JSON (sem markdown):
             <div style={{display:"flex",gap:6,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
               {["Todas", ...AREAS].map(a => <button key={a} style={{...S.btn(bankFilter===a?"primary":""),whiteSpace:"nowrap",padding:"6px 12px",fontSize:12}} onClick={() => { setBankFilter(a); setBankPage(1); }}>{a}</button>)}
             </div>
-            <div style={{display:"flex",gap:0,marginBottom:14,background:"#efe3bd",borderRadius:10,padding:3}}>
+            <div style={{display:"flex",gap:0,marginBottom:14,background:"#eee8d9",borderRadius:10,padding:3}}>
               {(() => {
                 const sq = bankSearch.toLowerCase().trim(); const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
                 const qLen = filtered.filter(c => c.tipo === "questao").length;
                 const fLen = filtered.filter(c => c.tipo === "flashcard").length;
                 return [["questoes", `Questões (${qLen})`], ["flashcards", `Flashcards (${fLen})`]].map(([v, l]) => (
-                  <button key={v} style={{flex:1,padding:"8px 0",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,background: bankTab===v?"#b5622f":"transparent",color: bankTab===v?"#362b1c":"#8f7c58"}} onClick={() => {setBankTab(v); setBankExpandedId(null); setBankPage(1);}}>{l}</button>
+                  <button key={v} style={{flex:1,padding:"8px 0",border:"none",borderRadius:8,cursor:"pointer",fontSize:13,fontWeight:500,background: bankTab===v?"#c48b6f":"transparent",color: bankTab===v?"#3d362a":"#948870"}} onClick={() => {setBankTab(v); setBankExpandedId(null); setBankPage(1);}}>{l}</button>
                 ));
               })()}
             </div>
             {(() => {
               const sq = bankSearch.toLowerCase().trim(); const filtered = (bankFilter === "Todas" ? cards : cards.filter(c => c.area === bankFilter)).filter(c => !sq || [c.enunciado,c.tema,c.frente,c.verso,c.explicacao,c.comentario].some(f => f && f.toLowerCase().includes(sq)));
               const list = filtered.filter(c => c.tipo === (bankTab === "questoes" ? "questao" : "flashcard")).sort((a,b) => b.id - a.id);
-              if (list.length === 0) return <p style={{color:"#b6a67e",fontSize:13,textAlign:"center",marginTop:40}}>Nenhum item ainda.</p>;
+              if (list.length === 0) return <p style={{color:"#b7ad96",fontSize:13,textAlign:"center",marginTop:40}}>Nenhum item ainda.</p>;
               const visible = list.slice(0, bankPage * BANK_PAGE_SIZE);
               if (bankTab === "questoes") return visible.map((c, idx) => {
                 const exp = bankExpandedId === c.id;
@@ -3694,15 +3701,15 @@ Retorne SOMENTE um JSON (sem markdown):
                         <span style={{color:tint,fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700}}>{c.area}</span>
                         {c.tema && <><span style={{fontSize:10,color:COZY.textFaint}}>·</span><span style={{fontFamily:COZY.fontDisplay,fontStyle:"italic",fontSize:12,color:COZY.textMute}}>{c.tema}</span></>}
                       </div>
-                      <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#362b1c"}}>{c.enunciado}</p>
+                      <p style={{fontSize:13,margin:"0 0 6px",lineHeight:1.5,color:"#3d362a"}}>{c.enunciado}</p>
                       {c.enunciadoImgs?.length > 0 && !exp && (
-                        <span style={{fontSize:11,color:"#8f7c58",display:"block",marginBottom:4}}>🖼️ {c.enunciadoImgs.length} imagem{c.enunciadoImgs.length>1?"ns":""}</span>
+                        <span style={{fontSize:11,color:"#948870",display:"block",marginBottom:4}}>🖼️ {c.enunciadoImgs.length} imagem{c.enunciadoImgs.length>1?"ns":""}</span>
                       )}
                       {c.enunciadoImgs?.length > 0 && exp && (
                         <div style={{display:"flex",flexWrap:"wrap",gap:8,margin:"8px 0 4px"}}>
                           {c.enunciadoImgs.map((src,i) => (
                             <img key={i} src={src} onClick={e => {e.stopPropagation(); setLightbox(src);}}
-                              style={{maxWidth:"100%",maxHeight:220,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#efe3bd",display:"block"}} alt={`img-${i}`}/>
+                              style={{maxWidth:"100%",maxHeight:220,borderRadius:6,cursor:"zoom-in",objectFit:"contain",background:"#eee8d9",display:"block"}} alt={`img-${i}`}/>
                           ))}
                         </div>
                       )}
@@ -3712,9 +3719,9 @@ Retorne SOMENTE um JSON (sem markdown):
                             const l = ["A","B","C","D","E"][i];
                             const isC = l === c.correta;
                             const isM = l === c.alternativaMarcada;
-                            return <div key={l} style={{padding:"7px 11px",marginBottom:5,borderRadius:8,background: isC?"#e7efdf":isM?"#f6d4d4":"#efe3bd",border:`1px solid ${isC?"#5c7d4f":isM?"#a8504f":"#e8dab3"}`,fontSize:13,color: isC?"#5c7d4f":isM?"#b23b3b":"#6b5738"}}>{alt}{isM && !isC ? " ← você marcou" : ""}</div>;
+                            return <div key={l} style={{padding:"7px 11px",marginBottom:5,borderRadius:8,background: isC?"#ecf0e6":isM?"#f5e5e4":"#eee8d9",border:`1px solid ${isC?"#7c9270":isM?"#b17877":"#e9e3d2"}`,fontSize:13,color: isC?"#7c9270":isM?"#b06868":"#6f6552"}}>{alt}{isM && !isC ? " ← você marcou" : ""}</div>;
                           })}
-                          {c.explicacao && <p style={{fontSize:12,color:"#6b5738",marginTop:10,lineHeight:1.6,borderTop:"1px solid #e8dab3",paddingTop:8}}>{c.explicacao}</p>}
+                          {c.explicacao && <p style={{fontSize:12,color:"#6f6552",marginTop:10,lineHeight:1.6,borderTop:"1px solid #e9e3d2",paddingTop:8}}>{c.explicacao}</p>}
                         </div>
                       )}
                       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:10,gap:8}} onClick={e => e.stopPropagation()}>
@@ -3755,14 +3762,14 @@ Retorne SOMENTE um JSON (sem markdown):
                       {c.nextReview <= today() && <span style={{...statusChipStyle(COZY.peach),marginLeft:"auto"}}>revisar hoje</span>}
                     </div>
                     <div style={{display:"flex",alignItems:"flex-start",gap:6,marginBottom:4}}>
-                      <div style={{fontSize:13,fontWeight:500,color:"#362b1c",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.frente)}}/>
+                      <div style={{fontSize:13,fontWeight:500,color:"#3d362a",lineHeight:1.5,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.frente)}}/>
                       <button title="Copiar frente" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pF, c.frente);}}>📋</button>
                     </div>
                     {(c.frenteImgs || (c.frenteImg ? [c.frenteImg] : [])).map((src,i) => <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginBottom:6,marginRight:6,cursor:"zoom-in"}} alt="frente"/>)}
                     {exp && (
-                      <div style={{marginTop:8,borderTop:"1px solid #e8dab3",paddingTop:10}} onClick={e => e.stopPropagation()}>
+                      <div style={{marginTop:8,borderTop:"1px solid #e9e3d2",paddingTop:10}} onClick={e => e.stopPropagation()}>
                         <div style={{display:"flex",alignItems:"flex-start",gap:6}}>
-                          <div style={{fontSize:13,color:"#5c7d4f",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.verso)}}/>
+                          <div style={{fontSize:13,color:"#7c9270",lineHeight:1.6,flex:1}} dangerouslySetInnerHTML={{__html: renderCardText(c.verso)}}/>
                           <button title="Copiar verso" style={{...S.btn(),padding:"3px 8px",fontSize:12,flexShrink:0}} onClick={e => {e.stopPropagation(); copyText(pV, c.verso);}}>📋</button>
                         </div>
                         {(c.versoImgs || (c.versoImg ? [c.versoImg] : [])).map((src,i) => <img key={i} src={src} onClick={() => setLightbox(src)} style={{maxWidth:"100%",maxHeight:120,borderRadius:6,marginTop:8,marginRight:6,cursor:"zoom-in"}} alt="verso"/>)}
