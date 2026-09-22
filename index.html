@@ -858,11 +858,13 @@ async function repoUpdate(repo, cards, deletedIds) {
     }
     await Promise.all(Array.from({ length: Math.min(PARALLEL_BLOBS, filesToUpload.length) }, () => worker()));
 
-    const blobs = [...reusedBlobs, ...uploadedBlobs];
-
-    // 5. Nova tree (mantém o que já existe via base_tree; sha:null deleta)
+    // 5. Nova tree — SÓ os paths que mudaram + órfãos (sha:null deleta). NÃO
+    // incluir reusedBlobs: com base_tree, qualquer path omitido é herdado
+    // automaticamente do tree base. Antes reenviava TODOS os parts (mudados
+    // ou não) toda sync — com acervo grande isso estourou o limite do GitHub
+    // pra processar o tree POST ("Sorry, your request timed out... too large").
     const treeEntries = [
-      ...blobs.map(b => ({ path: b.path, mode: "100644", type: "blob", sha: b.sha })),
+      ...uploadedBlobs.map(b => ({ path: b.path, mode: "100644", type: "blob", sha: b.sha })),
       ...orphanPaths.map(p => ({ path: p, mode: "100644", type: "blob", sha: null }))
     ];
     const newTreeResp = await callGithubRetry("POST", `/repos/${repo}/git/trees`, {
